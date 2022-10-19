@@ -19,7 +19,7 @@ MyArray Function(const MyArray &Arr)
 		RetVal[i] += Arr[i+1] * (dom::hpfloat)0.33333333333333333333333333333333;
 	}
 
-	return Arr;
+	return RetVal;
 }
 
 int main()
@@ -35,6 +35,6 @@ int main()
 		R[i] = (dom::hpfloat)1.1;
 	}
 
-	dom::hpfloat Res = dom::FindError<float, ARR_SIZE>(L, R, 1000, 100, 50, Function);
+	dom::hpfloat Res = dom::FindError<float, ARR_SIZE>(L, R, Function, 1000, 100, 50);
 	std::cout << "Worst error: " << Res << std::endl;
 }

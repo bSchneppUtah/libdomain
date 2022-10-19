@@ -28,19 +28,21 @@ struct Value
 	/**
 	 * @brief Implements the generic 0-value constructor 
 	 */
-	Value()
-	{
-		this->OrigVal = 0.0;
-		this->Shadow = OrigVal;
-	}
+	Value() : Value(T(), (dom::hpfloat)0.0, 0) { }
 
 	/**
 	 * @brief Construct a Value based upon an existing hpfloat and low-precision number 
 	 */
-	Value(T Orig, hpfloat Shadow)
+	Value(T Orig, hpfloat Shadow) : Value(Orig, Shadow, 0) {}
+
+	/**
+	 * @brief Construct a Value based upon an existing hpfloat and low-precision number 
+	 */
+	Value(T Orig, hpfloat Shadow, uint64_t ShadowOps)
 	{
 		this->OrigVal = Orig;
 		this->Shadow = Shadow;
+		this->ShadowOps = ShadowOps;
 	}
 
 	/**
@@ -51,117 +53,150 @@ struct Value
 	{
 		this->OrigVal = (T)Val;
 		this->Shadow = (hpfloat)Val;
+		this->ShadowOps = 0;
 	}
 
 	Value(const Value &Other)
 	{
 		this->OrigVal = (T)Other.OrigVal;
-		this->Shadow = (hpfloat)Other.Shadow;		
+		this->Shadow = (hpfloat)Other.Shadow;	
+		this->ShadowOps = Other.ShadowOps;	
 	}
 
 	Value(Value &&Other)
 	{
 		this->OrigVal = (T)Other.OrigVal;
 		this->Shadow = (hpfloat)Other.Shadow;
+		this->ShadowOps = Other.ShadowOps;
 
 		Other.OrigVal = T();
-		Other.Shadow = T();
+		Other.Shadow = dom::hpfloat();
+		Other.ShadowOps = 0;
 	}
 
-	Value<T> operator+(Value<T> Other)
+	Value<T> operator+(const Value<T> &Other) const
 	{
 		T NOrigVal = this->OrigVal + Other.OrigVal;
 		hpfloat NShadow = (hpfloat)this->Shadow + (hpfloat)Other.Shadow;
-		return Value<T>{NOrigVal, NShadow};
+		return Value<T>{NOrigVal, NShadow, this->ShadowOps+1};
 	}
 
-	Value<T> operator-(Value<T> Other)
+	Value<T> operator-(const Value<T> &Other) const
 	{
 		T NOrigVal = this->OrigVal - Other.OrigVal;
 		hpfloat NShadow = (hpfloat)this->Shadow - (hpfloat)Other.Shadow;
-		return Value<T>{NOrigVal, NShadow};
+		return Value<T>{NOrigVal, NShadow, this->ShadowOps+1};
 	}
 
-	Value<T> operator*(Value<T> Other)
+	Value<T> operator*(const Value<T> &Other) const
 	{
 		T NOrigVal = this->OrigVal * Other.OrigVal;
 		hpfloat NShadow = (hpfloat)this->Shadow * (hpfloat)Other.Shadow;
-		return Value<T>{NOrigVal, NShadow};
+		return Value<T>{NOrigVal, NShadow, this->ShadowOps+1};
 	}
 
-	Value<T> operator/(Value<T> Other)
+	Value<T> operator/(const Value<T> &Other) const
 	{
 		T NOrigVal = this->OrigVal / Other.OrigVal;
 		hpfloat NShadow = (hpfloat)this->Shadow / (hpfloat)Other.Shadow;
-		return Value<T>{NOrigVal, NShadow};
+		return Value<T>{NOrigVal, NShadow, this->ShadowOps+1};
 	}
 
-	Value<T> &operator+=(Value<T> Other)
+	Value<T> &operator+=(const Value<T> &Other)
 	{
 		this->OrigVal += Other.OrigVal;
 		this->Shadow += (hpfloat)Other.Shadow;
+		this->ShadowOps++;
 		return *this;
 	}
 
-	Value<T> &operator-=(Value<T> Other)
+	Value<T> &operator-=(const Value<T> &Other)
 	{
 		this->OrigVal -= Other.OrigVal;
 		this->Shadow -= (hpfloat)Other.Shadow;
+		this->ShadowOps++;
 		return *this;
 	}
 
-	Value<T> &operator*=(Value<T> Other)
+	Value<T> &operator*=(const Value<T> &Other)
 	{
 		this->OrigVal *= Other.OrigVal;
 		this->Shadow *= (hpfloat)Other.Shadow;
+		this->ShadowOps++;
 		return *this;
 	}
 
-	Value<T> &operator/=(Value<T> Other)
+	Value<T> &operator/=(const Value<T> &Other)
 	{
 		this->OrigVal /= Other.OrigVal;
 		this->Shadow /= (hpfloat)Other.Shadow;
+		this->ShadowOps++;
 		return *this;
 	}
 
-	Value<T> &operator=(Value<T> Other)
+	Value<T> &operator=(const Value<T> &Other)
 	{
 		this->OrigVal = Other.OrigVal;
 		this->Shadow = (hpfloat)Other.Shadow;
+		this->ShadowOps = Other.ShadowOps;
 		return *this;
 	}
 
-	bool operator==(Value<T> Other)
+	bool operator<=(const Value<T> &Other) const
+	{
+		return this->OrigVal <= Other.OrigVal 
+			|| this->Shadow <= Other.Shadow;
+	}
+
+	bool operator>=(const Value<T> &Other) const
+	{
+		return this->OrigVal >= Other.OrigVal 
+			|| this->Shadow >= Other.Shadow;
+	}
+
+	bool operator<(const Value<T> &Other) const
+	{
+		return this->OrigVal < Other.OrigVal 
+			|| this->Shadow < Other.Shadow;
+	}
+
+	bool operator>(const Value<T> &Other) const
+	{
+		return this->OrigVal > Other.OrigVal 
+			|| this->Shadow > Other.Shadow;
+	}
+
+	bool operator==(const Value<T> &Other) const
 	{
 		return this->OrigVal == Other.OrigVal 
 			|| this->Shadow == Other.Shadow;
 	}
 
-	bool operator!=(Value<T> Other)
+	bool operator!=(Value<T> Other) const
 	{
 		return this->OrigVal != Other.OrigVal 
 			&& this->Shadow != Other.Shadow;
 	}
 
-	Value<T> operator+()
+	Value<T> operator+() const
 	{
 		T NOrigVal = +this->OrigVal;
 		hpfloat NShadow = +this->Shadow;
-		return Value<T>{NOrigVal, NShadow};
+		return Value<T>{NOrigVal, NShadow, this->ShadowOps+1};
 	}
 
-	Value<T> operator-()
+	Value<T> operator-() const
 	{
 		T NOrigVal = -this->OrigVal;
 		hpfloat NShadow = -this->Shadow;
-		return Value<T>{NOrigVal, NShadow};
+		return Value<T>{NOrigVal, NShadow, this->ShadowOps+1};
 	}
 
 	/**
 	 * @brief Compares the high-precision shadow value with the low-precision value, returning their difference
 	 * @return An hpfloat which describes the absolute value of the difference between the shadow value and traced value
 	 */
-	hpfloat Diff()
+	hpfloat Diff() const
 	{
 		/* Guarantee absolute value */
 		hpfloat Tmp = this->Shadow;
@@ -187,11 +222,45 @@ struct Value
 		return this->Shadow;
 	}
 
+	/**
+	 * @brief Returns the number of operations that were done on this Value, relative to it's original state before applying a function.
+	 * @return The number of operations applied which modifies the shadow values in some way.
+	 */
+	uint64_t Ops() const
+	{
+		return this->ShadowOps;
+	}
+
 private:
 	T OrigVal;
 	hpfloat Shadow;
+	uint64_t ShadowOps;
 };
 
+/* Remaining operators need to be implemented as such: */
+template<typename T>
+static Value<T> operator+(const dom::hpfloat &Left, const Value<T> &Right)
+{
+	return Value<T>(Left) + Right;
+}
+
+template<typename T>
+static Value<T> operator-(const dom::hpfloat &Left, const Value<T> &Right)
+{
+	return Value<T>(Left) - Right;
+}
+
+template<typename T>
+static Value<T> operator*(const dom::hpfloat &Left, const Value<T> &Right)
+{
+	return Value<T>(Left) * Right;
+}
+
+template<typename T>
+static Value<T> operator/(const dom::hpfloat &Left, const Value<T> &Right)
+{
+	return Value<T>(Left) / Right;
+}
 
 template<typename T, uint64_t Size>
 struct Array
