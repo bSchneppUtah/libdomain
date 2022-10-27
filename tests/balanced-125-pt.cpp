@@ -15,21 +15,6 @@ MyArray Function(const MyArray &Arr)
 {
 	MyArray RetVal;
 	
-#if 0
-	MyVal Summation;
-	MyArray RetVal;
-
-	for (int i = 1; i < Arr.GetSize() - 1; i++)
-	{
-		RetVal[i] = (dom::hpfloat)0;
-		RetVal[i] += Arr[i] * (dom::hpfloat)0.333333333333333333333333333333333;
-		RetVal[i] -= Arr[i-1] * (dom::hpfloat)0.7777777777777777777777777777777;
-		RetVal[i] += Arr[i+1] * (dom::hpfloat)0.33333333333333333333333333333333;
-	}
-
-	return Arr;
-#endif
-	
 	MyVal Coeffs[125];
 	for (uint64_t Index = 0; Index < 125; Index++)
 	{

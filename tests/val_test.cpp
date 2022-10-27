@@ -15,5 +15,5 @@ int main()
 
 	MyVal Res = One - Two;
 	std::cout << "Res values: " << Res.Val() << ", " << Res.SVal() << std::endl;
-	std::cout << "Diff: " << Res.Diff() << std::endl;
+	std::cout << "Diff: " << Res.Error() << std::endl;
 }

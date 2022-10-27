@@ -47,10 +47,10 @@ Array Function(Array &Arr)
 	int i = 1;
 	
 	int offset = ToLinearAddr(i, j);
-	RetVal[offset] = (Coeffs[0] * Arr[ToLinearAddr(i+0,j+0)]) 
-		+ (Coeffs[1] * Arr[ToLinearAddr(i+0,j+1)])
-		+ (Coeffs[2] * Arr[ToLinearAddr(i+0,j-1)])
-		+ (Coeffs[3] * Arr[ToLinearAddr(i+1,j+0)])
+	RetVal[offset] = ((Coeffs[0] * Arr[ToLinearAddr(i+0,j+0)]) 
+		+ (Coeffs[1] * Arr[ToLinearAddr(i+0,j+1)]))
+		+ ((Coeffs[2] * Arr[ToLinearAddr(i+0,j-1)])
+		+ (Coeffs[3] * Arr[ToLinearAddr(i+1,j+0)]))
 		+ (Coeffs[4] * Arr[ToLinearAddr(i-1,j+0)]);
 	return RetVal;
 }

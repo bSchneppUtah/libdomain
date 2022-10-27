@@ -66,6 +66,11 @@ public:
 		return this->Maximum;
 	}
 
+	dom::Value<T> Size() const
+	{
+		return this->Maximum - this->Minimum;
+	}
+
 	dom::Value<T> Average() const
 	{
 		return this->Minimum + ((this->Maximum - this->Minimum) / (dom::hpfloat)2.0);
@@ -77,6 +82,8 @@ public:
 		static std::mt19937 Gen(Dev());
 		static std::uniform_int_distribution<int> SDist(INT32_MIN, INT32_MAX);
 
+
+#define OKAY_RANDOM
 #ifdef ACCURATE_RANDOM
 		dom::hpfloat RandScale = this->Maximum.SVal() - this->Minimum.SVal();
 		dom::hpfloat RandNumber = mpfr::random(SDist(Gen));
@@ -85,9 +92,13 @@ public:
 		std::uniform_real_distribution<double> Dist(0.0, (double)(this->Maximum.SVal() - this->Minimum.SVal()));
 		dom::hpfloat RandScale = Dist(Gen);
 		dom::hpfloat RandNumber = RDist(Gen);
-#else
+#elif defined(OKAY_RANDOM)
 		dom::hpfloat RandScale = this->Maximum.SVal() - this->Minimum.SVal();
 		dom::hpfloat RandNumber = (double)rand() / (double)RAND_MAX;
+#elif defined(TIME_RANDOM)
+		dom::hpfloat RandScale = this->Maximum.SVal() - this->Minimum.SVal();
+		uint64_t Time = time(0) % 180381;
+		dom::hpfloat RandNumber = (double)Time / 180381;
 #endif
 		dom::Value<T> FinalSample = this->Minimum + (RandScale * RandNumber);
 
@@ -105,8 +116,8 @@ public:
 
 	dom::hpfloat Error() const
 	{
-		dom::hpfloat VarMinErr = this->Minimum.Diff();
-		dom::hpfloat VarMaxErr = this->Maximum.Diff();
+		dom::hpfloat VarMinErr = this->Minimum.Error();
+		dom::hpfloat VarMaxErr = this->Maximum.Error();
 		return (VarMinErr < VarMaxErr) ? VarMaxErr : VarMinErr;
 	}
 
@@ -236,13 +247,14 @@ public:
 		ConfigurationOptions RetVal;
 		RetVal[0].reserve(Vals.bucket_count());
 		RetVal[1].reserve(Vals.bucket_count());
-		std::array<VarT, 2> HalfConfs[Vals.size()];
 		for (const auto &Pair : Vals)
 		{
-			dom::Value<T> Mid = Pair.second.Min();
-			Mid += ((Pair.second.Max() - Pair.second.Min()) / (dom::hpfloat)2.0);
-			RetVal[0][Pair.first] = Variable(Pair.second.Min(), Mid);
-			RetVal[1][Pair.first] = Variable(Mid, Pair.second.Max());
+			/* Optimization to avoid re-allocations... */
+			dom::hpfloat MidP = Pair.second.Min().SVal();
+			MidP += (Pair.second.Max().SVal() - Pair.second.Min().SVal()) / 2.0;
+
+			RetVal[0][Pair.first] = Variable(Pair.second.Min(), dom::Value<T>(MidP));
+			RetVal[1][Pair.first] = Variable(dom::Value<T>(MidP), Pair.second.Max());
 		}
 		return RetVal;
 	}
@@ -253,15 +265,8 @@ public:
 		/* Pre-allocate buckets to hopefully avoid being stuck in malloc() over and over */
 		Configuration RetVal;
 		RetVal.reserve(Left.bucket_count() + Right.bucket_count());
-
-		for (const auto &Pair : Left)
-		{
-			RetVal[Pair.first] = Pair.second;
-		}
-		for (const auto &Pair : Right)
-		{
-			RetVal[Pair.first] = Pair.second;
-		}
+		RetVal.insert(Left.begin(), Left.end());
+		RetVal.insert(Right.begin(), Right.end());
 		return RetVal;
 	}
 	
@@ -295,7 +300,8 @@ public:
 	}
 	
 	/* Refer to Section 3.4 in the S3FP paper */
-	std::vector<Configuration> NextGen(uint64_t NPart)
+	[[nodiscard]]
+	std::vector<Configuration> NextGen(uint64_t NPart) const
 	{
 		std::vector<Configuration> NextG;
 
@@ -306,12 +312,29 @@ public:
 		ConfigurationOptions Configs = HalfConfigs(this->Vals);
 		NextG.push_back(Configs[0]);
 		NextG.push_back(Configs[1]);
-		
+
+		/* Optimization: Gathering all PartConf() first improves cache locality */
+		std::vector<ConfigurationOptions> Options(NPart);
 		for (int i = 0; i < NPart; i++)
 		{
-			ConfigurationOptions Arr = PartConf();
-			ConfigurationOptions Cx = HalfConfigs(Arr[0]);
-			ConfigurationOptions Cy = HalfConfigs(Arr[1]);
+			Options[i] = PartConf();
+		}
+
+		/* Optimization: Similarly, putting together both halves also improves cache locality. */
+		std::vector<ConfigurationOptions> Options1(NPart);
+		std::vector<ConfigurationOptions> Options2(NPart);
+
+		for (int i = 0; i < NPart; i++)
+		{
+			const ConfigurationOptions &Arr = Options[i];
+			Options1[i] = HalfConfigs(Arr[0]);
+			Options2[i] = HalfConfigs(Arr[1]);
+		}
+
+		for (int i = 0; i < NPart; i++)
+		{	
+			const ConfigurationOptions &Cx = Options1[i];
+			const ConfigurationOptions &Cy = Options2[i];
 			
 			/* up(Cx) U down(Cy) */
 			NextG.push_back(UnionConfigurations(Cx[0], Cy[1]));

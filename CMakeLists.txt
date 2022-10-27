@@ -35,3 +35,9 @@ target_link_libraries(bgrt-ltr-5-pt domain)
 
 add_executable(bgrt-ltr-125-pt tests/bgrt-ltr-125-pt.cpp)
 target_link_libraries(bgrt-ltr-125-pt domain)
+
+add_executable(bgrt-balanced-5-pt tests/bgrt-balanced-5-pt.cpp)
+target_link_libraries(bgrt-balanced-5-pt domain)
+
+add_executable(bgrt-balanced-125-pt tests/bgrt-balanced-125-pt.cpp)
+target_link_libraries(bgrt-balanced-125-pt domain)

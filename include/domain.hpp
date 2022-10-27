@@ -1,9 +1,11 @@
 #include <array>
 #include <vector>
 
+#include <float.h>
 #include <stdint.h>
 
 #include <list>
+#include <mutex>
 #include <random>
 #include <thread>
 #include <atomic>
@@ -11,8 +13,17 @@
 #include <value.hpp>
 #include <hpfloat.hpp>
 
+#include "number.hpp"
+
 #include <bgrt/bgrt.hpp>
 #include <unordered_map>
+
+#include <condition_variable>
+#include "impl/partition.hpp"
+
+#include "domain/base.hpp"
+#include "domain/util.hpp"
+#include "domain/multithread.hpp"
 
 #ifndef LIBDOMAIN_HPP_
 #define LIBDOMAIN_HPP_
@@ -25,6 +36,7 @@
 
 namespace dom
 {
+
 
 void Init();
 
@@ -40,7 +52,7 @@ std::array<hpfloat, Size> Diffs(const Array<T, Size> &Content)
 	std::array<hpfloat, Size> RetVal;
 	for (uint64_t Index = 0; Index < Size; Index++)
 	{
-		RetVal[Index] = Content[Index].Diff();
+		RetVal[Index] = Content[Index].Error();
 	}
 	return RetVal;
 }
@@ -80,70 +92,6 @@ static std::array<Array<T, Size>, 2> ConvertArray(std::unordered_map<uint64_t, b
 		RetVal[1][Pair.first] = Pair.second.Max();
 	}
 	return RetVal;
-}
-
-typedef struct EvalResults
-{
-	dom::hpfloat Err;
-	uint64_t TotalShadowOps;
-}EvalResults;
-
-/**
- * @brief Implements the Eval function as described in the S3FP paper
- * @author Brian Schnepp
- * @see https://formalverification.cs.utah.edu/grt/publications/ppopp14-s3fp.pdf
- * @param P The function to execute, corresponding to the parameter P as described in the paper
- * @param C The configuration of the variables, corresponding to the parameter C as described in the paper
- * @param k The number of times P(C) is run, matching the description of k in the paper
- * @return The highest error seen in any variable over the function P
- */
-template<typename T>
-EvalResults Eval(std::unordered_map<uint64_t, dom::Value<T>> (*P)(std::unordered_map<uint64_t, dom::Value<T>>&), 
-	     const std::unordered_map<uint64_t, bgrt::Variable<T>> &C, uint64_t k)
-{
-	uint64_t TotalShadowOps = 0;
-	dom::hpfloat Err = (dom::hpfloat)0.0;
-
-	using Val = dom::Value<T>;
-	using Var = bgrt::Variable<T>;
-	using Array = std::unordered_map<uint64_t, Val>;
-	using Configuration = std::unordered_map<uint64_t, Var>;
-
-	Array SubmitVals;
-	/* Reserve the same amount of space: performance optimization */
-	SubmitVals.reserve(C.bucket_count());
-
-	std::vector<Array> SampleConfs(k);
-
-	/* Call F on this configuration K times (Section 3.1) */
-	for (auto &Pair : C)
-	{
-		/* Sample a point within the given domain */
-		for (uint64_t iK = 0; iK < k; iK++)
-		{
-			SampleConfs[iK][Pair.first] = Pair.second.Sample();
-		}
-	}
-
-	std::vector<Array> Results(k);
-	/* Call F on this configuration K times (Section 3.1)*/
-	for (uint64_t iK = 0; iK < k; iK++)
-	{
-		/* Submit a job to P with the sampled points */
-		Results.push_back(P(SampleConfs[iK]));
-	}
-
-	for (const Array &Next : Results)
-	{
-		for (auto &Pair : Next)
-		{
-			hpfloat Diff = Pair.second.Diff();
-			Err = (Diff > Err) ? Diff : Err;
-			TotalShadowOps += Pair.second.Ops();
-		}		
-	}
-
-	return {Err, TotalShadowOps};	
 }
 
 /**
@@ -239,85 +187,8 @@ hpfloat FindError(const Array<T, Size> &Lower, const Array<T, Size> &Higher,
 }
 
 /**
- * @brief Implements the BGRT algorithm to efficiently find floating point errors
- * @author Brian Schnepp
- * @see https://formalverification.cs.utah.edu/grt/publications/ppopp14-s3fp.pdf
- * @param InitConf The initial BGRT variable configuration
- * @param Iterations The number of configurations to create upon every previous configuration given
- * @param Resources The number of times new configurations should be processed
- * @param RestartPercent The percentage, as a whole integer, where the initial configuration is reset to avoid local minima
- * @param F The function which takes a BGRT configuration to check for floating-point error with.
- * @param k The number of times to execute F, looking for potential error
- * @param LogFreq What percent of samples will have their error written to the console
- * @param LogOut A stream to send messages to for logging
- * @return The highest error of the function that was ever found, described as "WorstError" in the paper
- */
-template<typename T>
-hpfloat FindError(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
-		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 1000, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 15,
-		uint64_t k = 1000, uint64_t LogFreq = 500, std::ostream &LogOut = std::cout)
-{
-	/* Don't allow using something of the same size as the high precision float. */
-	static_assert(sizeof(T) != sizeof(dom::hpfloat));
-
-	bool RandomRestart = false;
-	hpfloat WorstError = 0;
-	hpfloat LocalError = 0;
-	
-	using Var = bgrt::Variable<T>;
-	using Configuration = std::unordered_map<uint64_t, Var>;
-	
-	Configuration LocalConf = InitConf;
-	bgrt::BGRTState BGRT(LocalConf);
-
-	static std::random_device Dev;
-	static std::mt19937 Gen(Dev());
-	static std::uniform_int_distribution<int> Dist(0, 100);
-
-	uint64_t RemainingResources = Resources;
-	while (RemainingResources > 0)
-	{
-		LocalError = 0;
-		const std::vector<Configuration> NextConfs = BGRT.NextGen(Iterations);
-		for (auto C : NextConfs)
-		{
-			EvalResults Res = Eval(F, C, k);
-			dom::hpfloat Err = Res.Err;
-			uint64_t Ops = Res.TotalShadowOps;
-			if (Err > LocalError)
-			{
-				LocalError = Err;
-				LocalConf = C;
-				BGRT.SetVals(LocalConf);
-			}
-			RemainingResources -= Ops;
-		}
-
-		/* Is the error in this configuration higher than the global maximum? */
-		if (LocalError > WorstError)
-		{
-			WorstError = LocalError;
-		}
-
-		/* Sometimes re-issue the original configuration, to avoid getting stuck. */
-		RandomRestart = (Dist(Gen) % 100) < RestartPercent;
-		if (RandomRestart)
-		{
-			LocalConf = InitConf;
-			BGRT.SetVals(LocalConf);
-		}
-
-		if ((RemainingResources % LogFreq) == 0)
-		{
-			LogOut << "Current Error: " << WorstError << std::endl;
-		}
-	}
-	return WorstError;
-}
-
-/**
  * @brief Implements a multi-threaded variant of the BGRT algorithm to efficiently find floating point errors
+ * @warning NOT YET IMPLEMENTED
  * @author Brian Schnepp
  * @see https://formalverification.cs.utah.edu/grt/publications/ppopp14-s3fp.pdf
  * @param InitConf The initial BGRT variable configuration
@@ -332,10 +203,10 @@ hpfloat FindError(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitCon
  * @return The highest error of the function that was ever found, described as "WorstError" in the paper
  */
 template<typename T>
-hpfloat FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
+hpfloat FindErrorMantissa(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 1000, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 15,
-		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		const uint64_t Iterations = 1000, const int64_t Resources = 18, const uint64_t RestartPercent = 15,
+		uint64_t k = 25, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));
@@ -344,56 +215,6 @@ hpfloat FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T
 	{
 		NumThreads = std::thread::hardware_concurrency();
 	}
-
-	struct LazyResourceCounter
-	{
-		std::atomic_int64_t RealValue;
-		int64_t *ThreadCounters;
-		uint64_t NumThreads;
-
-	public:
-		LazyResourceCounter(uint64_t NumThreads)
-		{
-			this->RealValue = 0;
-			this->NumThreads = NumThreads;
-			
-			this->ThreadCounters = new int64_t[NumThreads];
-			for (uint64_t Index = 0; Index < NumThreads; Index++)
-			{
-				this->ThreadCounters[Index] = 0;
-			}
-		}
-
-		~LazyResourceCounter()
-		{
-			delete[] this->ThreadCounters;
-		}
-
-		void Sync()
-		{
-			for (uint64_t Index = 0; Index < NumThreads; Index++)
-			{
-				RealValue += ThreadCounters[Index];
-				ThreadCounters[Index] = 0;
-			}
-		}
-
-		int64_t Read()
-		{
-			this->Sync();
-			return this->RealValue;
-		}
-
-		void Add(int64_t Value, uint64_t TID)
-		{
-			this->ThreadCounters[TID] += Value;
-		}
-
-		void Sub(int64_t Value, uint64_t TID)
-		{
-			this->ThreadCounters[TID] -= Value;
-		}
-	};
 
 	bool RandomRestart = false;
 	hpfloat WorstError = 0;
@@ -411,49 +232,154 @@ hpfloat FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T
 
 	std::thread Threads[NumThreads];
 
-	/*
-	 * Resources in this case is always the number of shadow value computations actually performed.
-	 */
-	LazyResourceCounter RemainingResources(NumThreads);
 	std::vector<std::vector<Configuration>> PartNextConfs(NumThreads);
+
+	hpfloat LocalErrors[NumThreads];
+	Configuration LocalConfs[NumThreads];
+	std::atomic_uint8_t Continue[NumThreads];
+
+	enum ThreadControl
+	{
+		EMPTY = 0,
+		WORKING = 1,
+		WORK_AVAIL = 2,
+		TERMINATE = 3,
+	};
 	
-	while (RemainingResources.Read() <= Resources)
+
+	for (uint64_t TID = 0; TID < NumThreads; TID++)
+	{
+		Continue[TID] = EMPTY;
+		Threads[TID] = std::thread([&LocalErrors, &LocalConfs, &PartNextConfs, &F, &k, &Continue](uint64_t TID)
+		{
+			while (Continue[TID] != TERMINATE)
+			{
+				if (Continue[TID] == WORK_AVAIL) 
+				{
+					Continue[TID] = WORKING;
+					for (const auto &C : PartNextConfs[TID])
+					{
+						EvalResults Res = Eval(F, C, k);
+						if (Res.Err > LocalErrors[TID].Err)
+						{
+							LocalErrors[TID] = Res;
+							LocalConfs[TID] = C;
+						}
+					}
+					Continue[TID] = EMPTY;
+				}
+			}
+		}, TID);
+	}
+
+	bool ResourcesAvailable = true;
+	while (ResourcesAvailable)
 	{
 		LocalError = 0;
 		PartNextConfs.clear();
 
-		hpfloat LocalErrors[NumThreads];
-		Configuration LocalConfs[NumThreads];
+		for (uint64_t TID = 0; TID < NumThreads; TID++)
+		{
+			while (Continue[TID] != EMPTY) { }
+			LocalErrors[TID] = 0;
+			LocalConfs[TID].clear();
+		}
 
 		const std::vector<Configuration> NextConfs = BGRT.NextGen(Iterations);
-
-		for (uint64_t Index = 0; Index < NextConfs.size(); Index++)
+		
+		uint64_t TotalJobs = 0;
+		uint64_t TotalPartIndex = 0;
+		for (; TotalPartIndex < NextConfs.size(); TotalPartIndex+=NumThreads)
 		{
-			auto C = NextConfs[Index];
-			PartNextConfs[Index % NumThreads].push_back(C);
-		}
-
-		for (uint64_t TID = 0; TID < NumThreads; TID++)
-		{
-			Threads[TID] = std::thread([&LocalErrors, &LocalConfs, &PartNextConfs, &F, &k, &RemainingResources](uint64_t TID){
-				for (auto C : PartNextConfs[TID])
+			for (uint64_t PartitionIndex = 0; PartitionIndex < NumThreads; PartitionIndex++)
+			{
+				bool Okay = true;
+				for (const auto &Pair : NextConfs[TotalPartIndex])
 				{
-					EvalResults Res = Eval(F, C, k);
-					dom::hpfloat Err = Res.Err;
-					uint64_t Ops = Res.TotalShadowOps;
-					if (Err > LocalErrors[TID])
+					/* TODO: Refactor to avoid code duplication */
+					auto Min = Pair.second.Min().Val();
+					auto Max = Pair.second.Max().Val();
+					uint64_t MinMant = MantissaBits(Min);
+					uint64_t MaxMant = MantissaBits(Min);
+
+					uint64_t MinExp = ExponentBits(Min);
+					uint64_t MaxExp = ExponentBits(Max);
+
+					uint64_t MinSign = SignBits(Min);
+					uint64_t MaxSign = SignBits(Max);
+
+					if (MinSign == MaxSign && MinExp && MaxExp)
 					{
-						LocalErrors[TID] = Err;
-						LocalConfs[TID] = C;
+						uint64_t Agree = ~(MinMant ^ MaxMant);
+						uint64_t ReqBits = (1ULL << Resources) - 1;
+
+						/* If true, this configuration's space is too close. Trim it. */;
+						Okay = !((Agree & ReqBits) == ReqBits);
 					}
-					RemainingResources.Add(Ops, TID);
-				}				
-			}, TID);
+
+				}
+
+				if (Okay)
+				{
+					TotalJobs++;
+					PartNextConfs[PartitionIndex].push_back(NextConfs[TotalPartIndex]);
+				}
+			}
 		}
+
+		for (; TotalPartIndex < NextConfs.size(); TotalPartIndex++)
+		{
+			bool Okay = true;
+			for (const auto &Pair : NextConfs[TotalPartIndex])
+			{
+				/* TODO: Refactor to avoid code duplication */
+				auto Min = Pair.second.Min().Val();
+				auto Max = Pair.second.Max().Val();
+				uint64_t MinMant = MantissaBits(Min);
+				uint64_t MaxMant = MantissaBits(Min);
+
+				uint64_t MinExp = ExponentBits(Min);
+				uint64_t MaxExp = ExponentBits(Max);
+
+				uint64_t MinSign = SignBits(Min);
+				uint64_t MaxSign = SignBits(Max);
+
+				if (MinSign == MaxSign && MinExp && MaxExp)
+				{
+					uint64_t Agree = ~(MinMant ^ MaxMant);
+					uint64_t ReqBits = (1ULL << Resources) - 1;
+					
+					/* If true, this configuration's space is too close. Trim it. */;
+					Okay = !((Agree & ReqBits) == ReqBits);
+				}
+
+			}
+
+			if (Okay)
+			{
+				TotalJobs++;
+				PartNextConfs[TotalPartIndex % NumThreads].push_back(NextConfs[TotalPartIndex]);
+			}
+		}		
+
+		if (TotalJobs == 0)
+		{
+			/* We're done if every possible job was too close to the boundary. */
+			ResourcesAvailable = false;
+			break;
+		}
+
 
 		for (uint64_t TID = 0; TID < NumThreads; TID++)
 		{
-			Threads[TID].join();
+			while (Continue[TID] != EMPTY) { }
+			Continue[TID] = WORK_AVAIL;
+		}
+
+
+		for (uint64_t TID = 0; TID < NumThreads; TID++)
+		{
+			while (Continue[TID] != EMPTY) { }
 			if (LocalErrors[TID] > LocalError)
 			{
 				LocalError = LocalErrors[TID];
@@ -466,6 +392,7 @@ hpfloat FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T
 		if (LocalError > WorstError)
 		{
 			WorstError = LocalError;
+			LogOut << "Current Error: " << WorstError << std::endl;
 		}
 
 		/* Sometimes re-issue the original configuration, to avoid getting stuck. */
@@ -475,15 +402,15 @@ hpfloat FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T
 			LocalConf = InitConf;
 			BGRT.SetVals(LocalConf);
 		}
-
-		if ((RemainingResources.Read() % LogFreq) == 0)
-		{
-			LogOut << "Current Error: " << WorstError << std::endl;
-		}
 	}
+	for (uint64_t TID = 0; TID < NumThreads; TID++)
+	{
+		Continue[TID] = TERMINATE;
+		Threads[TID].join();
+	}
+
 	return WorstError;
 }
-
 
 }
 

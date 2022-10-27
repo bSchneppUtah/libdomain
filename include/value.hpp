@@ -28,7 +28,9 @@ struct Value
 	/**
 	 * @brief Implements the generic 0-value constructor 
 	 */
-	Value() : Value(T(), (dom::hpfloat)0.0, 0) { }
+	Value() : Value(T(), 0.0, 0) { }
+
+	~Value() = default;
 
 	/**
 	 * @brief Construct a Value based upon an existing hpfloat and low-precision number 
@@ -196,13 +198,23 @@ struct Value
 	 * @brief Compares the high-precision shadow value with the low-precision value, returning their difference
 	 * @return An hpfloat which describes the absolute value of the difference between the shadow value and traced value
 	 */
-	hpfloat Diff() const
+	hpfloat Error() const
 	{
 		/* Guarantee absolute value */
 		hpfloat Tmp = this->Shadow;
 		Tmp -= (hpfloat)this->OrigVal;
 		return (Tmp < 0) ? -Tmp : Tmp;
 	}
+
+	/**
+	 * @brief Computes the relative error resulting from this Value.
+	 * @return The relative error of this Value
+	 */
+	hpfloat RelError() const
+	{
+		hpfloat Tmp = this->Error() / this->Shadow;
+		return (Tmp > 0) ? Tmp : -Tmp;
+	}	
 
 	/**
 	 * @brief Obtains the low-precision version of this value

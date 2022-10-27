@@ -193,6 +193,10 @@ int main()
 		Init[i] = bgrt::Variable<float>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
 	}
 
-	dom::EvalResults Res = dom::FindErrorMultithread<float>(Init, Function, 1000, 1000, 50);
+
+	float Lim = std::numeric_limits<float>::epsilon();
+	Lim = (std::pow(2, 0) * Lim);
+	std::cout << "Lim is " << Lim << std::endl;
+	dom::EvalResults Res = dom::FindErrorBoundConf<float>(Init, Function, 1000, Lim);
 	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
 }
