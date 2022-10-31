@@ -56,6 +56,18 @@ public:
 		return *this;
 	}
 
+	Variable &operator=(Variable &&Other)
+	{
+		if (&Other == this)
+		{
+			return *this;
+		}
+		
+		this->Minimum = std::move(Other.Minimum);
+		this->Maximum = std::move(Other.Maximum);
+		return *this;
+	}
+
 	dom::Value<T> Min() const
 	{
 		return this->Minimum;
@@ -245,11 +257,8 @@ public:
 	static const ConfigurationOptions HalfConfigs(const Configuration &Vals)
 	{
 		ConfigurationOptions RetVal;
-		RetVal[0].reserve(Vals.bucket_count());
-		RetVal[1].reserve(Vals.bucket_count());
 		for (const auto &Pair : Vals)
 		{
-			/* Optimization to avoid re-allocations... */
 			dom::hpfloat MidP = Pair.second.Min().SVal();
 			MidP += (Pair.second.Max().SVal() - Pair.second.Min().SVal()) / 2.0;
 

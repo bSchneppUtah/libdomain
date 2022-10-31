@@ -47,7 +47,7 @@ template<typename T>
 hpfloat FindError(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
 		const uint64_t Iterations = 1000, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 15,
-		uint64_t k = 25, uint64_t LogFreq = 500, std::ostream &LogOut = std::cout)
+		uint64_t k = 50, uint64_t LogFreq = 500, std::ostream &LogOut = std::cout)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));

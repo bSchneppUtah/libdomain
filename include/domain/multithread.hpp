@@ -48,7 +48,7 @@ template<typename T>
 EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
 		const uint64_t Iterations = 1000, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 15,
-		uint64_t k = 25, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		uint64_t k = 50, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));
@@ -77,14 +77,14 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 
 	std::thread Threads[NumThreads];
 
-	struct LazyResourceCounter
+	struct PartitionCounter
 	{
 		std::atomic_int64_t RealValue;
 		int64_t *ThreadCounters;
 		uint64_t NumThreads;
 
 	public:
-		LazyResourceCounter(uint64_t NumThreads)
+		PartitionCounter(uint64_t NumThreads)
 		{
 			this->RealValue = 0;
 			this->NumThreads = NumThreads;
@@ -96,7 +96,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			}
 		}
 
-		~LazyResourceCounter()
+		~PartitionCounter()
 		{
 			delete[] this->ThreadCounters;
 		}
@@ -132,9 +132,9 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 	 * A performance trick is done here to get better parallelism: each core gets a local counter
 	 * which at some point is synced up with the main counter.
 	 * 
-	 * There is a formal name for this structure which seems to escape me right now.
+	 * This utilizes a data structure called a Partition Counter, which can avoid some of the IPC costs of atomic instructions.
 	 */
-	LazyResourceCounter RemainingResources(NumThreads);
+	PartitionCounter RemainingResources(NumThreads);
 
 	/* Partition the configuration up into chunks per thread. */
 	std::vector<std::vector<Configuration>> PartNextConfs(NumThreads);
@@ -203,7 +203,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			LocalConfs[TID].clear();
 		}
 
-		const std::vector<Configuration> NextConfs = BGRT.NextGen(Iterations);
+		const std::vector<Configuration> &NextConfs = BGRT.NextGen(Iterations);
 		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, NextConfs, [](const Configuration &Config){
 			return true;
 		});
@@ -221,7 +221,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			while (Continue[TID] != EMPTY) 
 			{
 				std::unique_lock<std::mutex> Lck(WorkerMutex[TID + NumThreads]);
-				WorkerCV[TID + NumThreads].wait(Lck);				
+				WorkerCV[TID + NumThreads].wait(Lck);		
 			}
 
 			if (LocalErrors[TID].Err > LocalError.Err)
@@ -254,6 +254,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 	for (uint64_t TID = 0; TID < NumThreads; TID++)
 	{
 		Continue[TID] = TERMINATE;
+		WorkerCV[TID].notify_all();
 		Threads[TID].join();
 	}
 
@@ -279,7 +280,7 @@ template<typename T>
 EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
 		const uint64_t Iterations = 1000, const dom::hpfloat MinRange = std::numeric_limits<T>::epsilon(), 
-		const uint64_t RestartPercent = 15, uint64_t k = 25, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		const uint64_t RestartPercent = 15, uint64_t k = 50, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));
@@ -319,14 +320,19 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 		TERMINATE = 3,
 	};
 	
+	/* The first NumThreads is for work input, the second half for work output. */
+	std::mutex WorkerMutex[NumThreads * 2];
+	std::condition_variable WorkerCV[NumThreads * 2];
 
 	for (uint64_t TID = 0; TID < NumThreads; TID++)
 	{
 		Continue[TID] = EMPTY;
-		Threads[TID] = std::thread([&LocalErrors, &LocalConfs, &PartNextConfs, &F, &k, &Continue](uint64_t TID)
+		Threads[TID] = std::thread([&LocalErrors, &LocalConfs, &PartNextConfs, &F, &k, &Continue, &WorkerCV, &WorkerMutex, NumThreads](uint64_t TID)
 		{
 			while (Continue[TID] != TERMINATE)
 			{
+				std::unique_lock<std::mutex> Lck(WorkerMutex[TID]);
+				WorkerCV[TID].wait(Lck);
 				if (Continue[TID] == WORK_AVAIL) 
 				{
 					Continue[TID] = WORKING;
@@ -341,6 +347,7 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 						}
 					}
 					Continue[TID] = EMPTY;
+					WorkerCV[TID + NumThreads].notify_all();
 				}
 			}
 		}, TID);
@@ -370,7 +377,7 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 			bool Okay = true;
 			for (const auto &Pair : Config)
 			{
-				if (Pair.second.Size() < MinRange)
+				if (Pair.second.Size().SVal() < MinRange)
 				{
 					Okay = false;
 				}
@@ -392,6 +399,7 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 		{
 			while (Continue[TID] != EMPTY) { }
 			Continue[TID] = WORK_AVAIL;
+			WorkerCV[TID].notify_all();
 		}
 
 
@@ -406,7 +414,11 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 		 */
 		for (uint64_t TID = 0; TID < NumThreads; TID++)
 		{
-			while (Continue[TID] != EMPTY) { }
+			while (Continue[TID] != EMPTY) 
+			{ 
+				std::unique_lock<std::mutex> Lck(WorkerMutex[TID + NumThreads]);
+				WorkerCV[TID + NumThreads].wait(Lck);				
+			}
 			if (LocalErrors[TID].Err > LocalError.Err)
 			{
 				LocalError = LocalErrors[TID];
@@ -437,6 +449,7 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 	for (uint64_t TID = 0; TID < NumThreads; TID++)
 	{
 		Continue[TID] = TERMINATE;
+		WorkerCV[TID].notify_all();
 		Threads[TID].join();
 	}
 

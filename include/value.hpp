@@ -58,6 +58,13 @@ struct Value
 		this->ShadowOps = 0;
 	}
 
+	Value(hpfloat &&Val)
+	{
+		this->Shadow = std::move(Val);
+		this->OrigVal = (T)this->Shadow;
+		this->ShadowOps = 0;
+	}
+
 	Value(const Value &Other)
 	{
 		this->OrigVal = (T)Other.OrigVal;

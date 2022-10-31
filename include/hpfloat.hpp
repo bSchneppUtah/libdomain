@@ -7,6 +7,7 @@ namespace dom
 {
 
 using hpfloat = mpfr::mpreal;
+namespace hp = mpfr;
 
 }
 

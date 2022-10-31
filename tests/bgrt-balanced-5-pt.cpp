@@ -66,6 +66,6 @@ int main()
 		Init[i] = Var((dom::hpfloat)0.0, (dom::hpfloat)1.0);
 	}
 
-	dom::EvalResults Res = dom::FindErrorMultithread<FType>(Init, Function);
+	dom::EvalResults Res = dom::FindErrorMantissa<float>(Init, Function, 1000, 0);
 	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
 }

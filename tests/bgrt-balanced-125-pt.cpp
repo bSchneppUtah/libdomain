@@ -193,10 +193,6 @@ int main()
 		Init[i] = bgrt::Variable<float>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
 	}
 
-
-	float Lim = std::numeric_limits<float>::epsilon();
-	Lim = (std::pow(2, 0) * Lim);
-	std::cout << "Lim is " << Lim << std::endl;
-	dom::EvalResults Res = dom::FindErrorBoundConf<float>(Init, Function, 1000, Lim);
+	dom::EvalResults Res = dom::FindErrorMantissa<float>(Init, Function, 1000, 0);
 	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
 }

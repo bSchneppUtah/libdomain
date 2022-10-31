@@ -193,7 +193,7 @@ hpfloat FindError(const Array<T, Size> &Lower, const Array<T, Size> &Higher,
  * @see https://formalverification.cs.utah.edu/grt/publications/ppopp14-s3fp.pdf
  * @param InitConf The initial BGRT variable configuration
  * @param Iterations The number of configurations to create upon every previous configuration given
- * @param Resources The rough limit on the number of floating point computations to perform. Actual executions may exceed this value by a fair amount.
+ * @param Resources The number of bits which need to be ignored in the mantissa of range: numbers differing by less than this range are ignored.
  * @param RestartPercent The percentage, as a whole integer, where the initial configuration is reset to avoid local minima
  * @param F The function which takes a BGRT configuration to check for floating-point error with.
  * @param k The number of times to execute F, looking for potential error
@@ -203,213 +203,18 @@ hpfloat FindError(const Array<T, Size> &Lower, const Array<T, Size> &Higher,
  * @return The highest error of the function that was ever found, described as "WorstError" in the paper
  */
 template<typename T>
-hpfloat FindErrorMantissa(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
+EvalResults FindErrorMantissa(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 1000, const int64_t Resources = 18, const uint64_t RestartPercent = 15,
-		uint64_t k = 25, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		const uint64_t Iterations = 1000, const int64_t Resources = 0, const uint64_t RestartPercent = 15,
+		uint64_t k = 50, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
-	/* Don't allow using something of the same size as the high precision float. */
-	static_assert(sizeof(T) != sizeof(dom::hpfloat));
+	T Lim = (dom::hpfloat)std::numeric_limits<T>::epsilon();
 
-	if (NumThreads == 0)
-	{
-		NumThreads = std::thread::hardware_concurrency();
-	}
+	dom::hpfloat hLim = (dom::hpfloat)Lim;
 
-	bool RandomRestart = false;
-	hpfloat WorstError = 0;
-	hpfloat LocalError = 0;
-	
-	using Var = bgrt::Variable<T>;
-	using Configuration = std::unordered_map<uint64_t, Var>;
-	
-	Configuration LocalConf = InitConf;
-	bgrt::BGRTState BGRT(LocalConf);
-
-	static std::random_device Dev;
-	static std::mt19937 Gen(Dev());
-	static std::uniform_int_distribution<int> Dist(0, 100);
-
-	std::thread Threads[NumThreads];
-
-	std::vector<std::vector<Configuration>> PartNextConfs(NumThreads);
-
-	hpfloat LocalErrors[NumThreads];
-	Configuration LocalConfs[NumThreads];
-	std::atomic_uint8_t Continue[NumThreads];
-
-	enum ThreadControl
-	{
-		EMPTY = 0,
-		WORKING = 1,
-		WORK_AVAIL = 2,
-		TERMINATE = 3,
-	};
-	
-
-	for (uint64_t TID = 0; TID < NumThreads; TID++)
-	{
-		Continue[TID] = EMPTY;
-		Threads[TID] = std::thread([&LocalErrors, &LocalConfs, &PartNextConfs, &F, &k, &Continue](uint64_t TID)
-		{
-			while (Continue[TID] != TERMINATE)
-			{
-				if (Continue[TID] == WORK_AVAIL) 
-				{
-					Continue[TID] = WORKING;
-					for (const auto &C : PartNextConfs[TID])
-					{
-						EvalResults Res = Eval(F, C, k);
-						if (Res.Err > LocalErrors[TID].Err)
-						{
-							LocalErrors[TID] = Res;
-							LocalConfs[TID] = C;
-						}
-					}
-					Continue[TID] = EMPTY;
-				}
-			}
-		}, TID);
-	}
-
-	bool ResourcesAvailable = true;
-	while (ResourcesAvailable)
-	{
-		LocalError = 0;
-		PartNextConfs.clear();
-
-		for (uint64_t TID = 0; TID < NumThreads; TID++)
-		{
-			while (Continue[TID] != EMPTY) { }
-			LocalErrors[TID] = 0;
-			LocalConfs[TID].clear();
-		}
-
-		const std::vector<Configuration> NextConfs = BGRT.NextGen(Iterations);
-		
-		uint64_t TotalJobs = 0;
-		uint64_t TotalPartIndex = 0;
-		for (; TotalPartIndex < NextConfs.size(); TotalPartIndex+=NumThreads)
-		{
-			for (uint64_t PartitionIndex = 0; PartitionIndex < NumThreads; PartitionIndex++)
-			{
-				bool Okay = true;
-				for (const auto &Pair : NextConfs[TotalPartIndex])
-				{
-					/* TODO: Refactor to avoid code duplication */
-					auto Min = Pair.second.Min().Val();
-					auto Max = Pair.second.Max().Val();
-					uint64_t MinMant = MantissaBits(Min);
-					uint64_t MaxMant = MantissaBits(Min);
-
-					uint64_t MinExp = ExponentBits(Min);
-					uint64_t MaxExp = ExponentBits(Max);
-
-					uint64_t MinSign = SignBits(Min);
-					uint64_t MaxSign = SignBits(Max);
-
-					if (MinSign == MaxSign && MinExp && MaxExp)
-					{
-						uint64_t Agree = ~(MinMant ^ MaxMant);
-						uint64_t ReqBits = (1ULL << Resources) - 1;
-
-						/* If true, this configuration's space is too close. Trim it. */;
-						Okay = !((Agree & ReqBits) == ReqBits);
-					}
-
-				}
-
-				if (Okay)
-				{
-					TotalJobs++;
-					PartNextConfs[PartitionIndex].push_back(NextConfs[TotalPartIndex]);
-				}
-			}
-		}
-
-		for (; TotalPartIndex < NextConfs.size(); TotalPartIndex++)
-		{
-			bool Okay = true;
-			for (const auto &Pair : NextConfs[TotalPartIndex])
-			{
-				/* TODO: Refactor to avoid code duplication */
-				auto Min = Pair.second.Min().Val();
-				auto Max = Pair.second.Max().Val();
-				uint64_t MinMant = MantissaBits(Min);
-				uint64_t MaxMant = MantissaBits(Min);
-
-				uint64_t MinExp = ExponentBits(Min);
-				uint64_t MaxExp = ExponentBits(Max);
-
-				uint64_t MinSign = SignBits(Min);
-				uint64_t MaxSign = SignBits(Max);
-
-				if (MinSign == MaxSign && MinExp && MaxExp)
-				{
-					uint64_t Agree = ~(MinMant ^ MaxMant);
-					uint64_t ReqBits = (1ULL << Resources) - 1;
-					
-					/* If true, this configuration's space is too close. Trim it. */;
-					Okay = !((Agree & ReqBits) == ReqBits);
-				}
-
-			}
-
-			if (Okay)
-			{
-				TotalJobs++;
-				PartNextConfs[TotalPartIndex % NumThreads].push_back(NextConfs[TotalPartIndex]);
-			}
-		}		
-
-		if (TotalJobs == 0)
-		{
-			/* We're done if every possible job was too close to the boundary. */
-			ResourcesAvailable = false;
-			break;
-		}
-
-
-		for (uint64_t TID = 0; TID < NumThreads; TID++)
-		{
-			while (Continue[TID] != EMPTY) { }
-			Continue[TID] = WORK_AVAIL;
-		}
-
-
-		for (uint64_t TID = 0; TID < NumThreads; TID++)
-		{
-			while (Continue[TID] != EMPTY) { }
-			if (LocalErrors[TID] > LocalError)
-			{
-				LocalError = LocalErrors[TID];
-				LocalConf = LocalConfs[TID];
-				BGRT.SetVals(LocalConf);
-			}
-		}
-
-		/* Is the error in this configuration higher than the global maximum? */
-		if (LocalError > WorstError)
-		{
-			WorstError = LocalError;
-			LogOut << "Current Error: " << WorstError << std::endl;
-		}
-
-		/* Sometimes re-issue the original configuration, to avoid getting stuck. */
-		RandomRestart = (Dist(Gen) % 100) < RestartPercent;
-		if (RandomRestart)
-		{
-			LocalConf = InitConf;
-			BGRT.SetVals(LocalConf);
-		}
-	}
-	for (uint64_t TID = 0; TID < NumThreads; TID++)
-	{
-		Continue[TID] = TERMINATE;
-		Threads[TID].join();
-	}
-
-	return WorstError;
+	/* Provide one extra Resource to account for rounding */
+	dom::hpfloat mLim = hLim * dom::hp::pow(2.0, (Resources-1));
+	return FindErrorBoundConf(InitConf, F, Iterations, mLim, RestartPercent, k, LogFreq, LogOut, NumThreads);
 }
 
 }
