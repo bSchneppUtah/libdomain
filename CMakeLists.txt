@@ -10,6 +10,13 @@ add_library(domain
 	Lib.cpp
 )
 
+# MPI is OPTIONAL.
+# But if it exists, we can also get the MPI test code.
+find_package(MPI)
+if (MPI_FOUND)
+	include_directories(${MPI_INCLUDE_PATH})
+endif()
+
 target_link_libraries(domain mpfr gmp Threads::Threads)
 
 add_executable(test1 tests/simple.cpp)
@@ -33,11 +40,46 @@ target_link_libraries(balanced-5-pt domain)
 add_executable(bgrt-ltr-5-pt tests/bgrt-ltr-5-pt.cpp)
 target_link_libraries(bgrt-ltr-5-pt domain)
 
+add_executable(bgrt-ltr-7-pt tests/bgrt-ltr-7-pt.cpp)
+target_link_libraries(bgrt-ltr-7-pt domain)
+
+add_executable(bgrt-ltr-9-pt tests/bgrt-ltr-9-pt.cpp)
+target_link_libraries(bgrt-ltr-9-pt domain)
+
+add_executable(bgrt-ltr-25-pt tests/bgrt-ltr-25-pt.cpp)
+target_link_libraries(bgrt-ltr-25-pt domain)
+
+add_executable(bgrt-ltr-27-pt tests/bgrt-ltr-27-pt.cpp)
+target_link_libraries(bgrt-ltr-27-pt domain)
+
 add_executable(bgrt-ltr-125-pt tests/bgrt-ltr-125-pt.cpp)
 target_link_libraries(bgrt-ltr-125-pt domain)
+
+add_executable(bgrt-ltr-poisson tests/bgrt-ltr-poisson.cpp)
+target_link_libraries(bgrt-ltr-poisson domain)
 
 add_executable(bgrt-balanced-5-pt tests/bgrt-balanced-5-pt.cpp)
 target_link_libraries(bgrt-balanced-5-pt domain)
 
+add_executable(bgrt-balanced-7-pt tests/bgrt-balanced-7-pt.cpp)
+target_link_libraries(bgrt-balanced-7-pt domain)
+
+add_executable(bgrt-balanced-9-pt tests/bgrt-balanced-9-pt.cpp)
+target_link_libraries(bgrt-balanced-9-pt domain)
+
+add_executable(bgrt-balanced-25-pt tests/bgrt-balanced-25-pt.cpp)
+target_link_libraries(bgrt-balanced-25-pt domain)
+
+add_executable(bgrt-balanced-27-pt tests/bgrt-balanced-27-pt.cpp)
+target_link_libraries(bgrt-balanced-27-pt domain)
+
 add_executable(bgrt-balanced-125-pt tests/bgrt-balanced-125-pt.cpp)
 target_link_libraries(bgrt-balanced-125-pt domain)
+
+add_executable(bgrt-balanced-poisson tests/bgrt-balanced-poisson.cpp)
+target_link_libraries(bgrt-balanced-poisson domain)
+
+if (MPI_FOUND)
+add_executable(bgrt-balanced-125-pt-mpi tests/bgrt-balanced-125-pt-mpi.cpp)
+target_link_libraries(bgrt-balanced-125-pt-mpi domain ${MPI_LIBRARIES})
+endif()

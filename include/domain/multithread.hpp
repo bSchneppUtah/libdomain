@@ -47,8 +47,8 @@ namespace dom
 template<typename T>
 EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 1000, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 15,
-		uint64_t k = 50, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		const uint64_t Iterations = 100, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 15,
+		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));
@@ -167,7 +167,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			while (Continue[TID] != TERMINATE)
 			{
 				std::unique_lock<std::mutex> Lck(WorkerMutex[TID]);
-				WorkerCV[TID].wait(Lck);
+				WorkerCV[TID].wait_for(Lck, std::chrono::milliseconds(500));
 
 				if (Continue[TID] == WORK_AVAIL) 
 				{
@@ -203,8 +203,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			LocalConfs[TID].clear();
 		}
 
-		const std::vector<Configuration> &NextConfs = BGRT.NextGen(Iterations);
-		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, NextConfs, [](const Configuration &Config){
+		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, NumThreads, BGRT, [](const Configuration &Config){
 			return true;
 		});
 
@@ -221,7 +220,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			while (Continue[TID] != EMPTY) 
 			{
 				std::unique_lock<std::mutex> Lck(WorkerMutex[TID + NumThreads]);
-				WorkerCV[TID + NumThreads].wait(Lck);		
+				WorkerCV[TID + NumThreads].wait_for(Lck, std::chrono::milliseconds(500));		
 			}
 
 			if (LocalErrors[TID].Err > LocalError.Err)
@@ -277,10 +276,10 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
  * @return The highest error of the function that was ever found, described as "WorstError" in the paper
  */
 template<typename T>
-EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
+EvalResults FindErrorBoundConfMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 1000, const dom::hpfloat MinRange = std::numeric_limits<T>::epsilon(), 
-		const uint64_t RestartPercent = 15, uint64_t k = 50, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		const uint64_t Iterations = 100, const dom::hpfloat MinRange = std::numeric_limits<T>::epsilon(), 
+		const uint64_t RestartPercent = 15, uint64_t k = 1000, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));
@@ -332,7 +331,7 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 			while (Continue[TID] != TERMINATE)
 			{
 				std::unique_lock<std::mutex> Lck(WorkerMutex[TID]);
-				WorkerCV[TID].wait(Lck);
+				WorkerCV[TID].wait_for(Lck, std::chrono::milliseconds(500));
 				if (Continue[TID] == WORK_AVAIL) 
 				{
 					Continue[TID] = WORKING;
@@ -366,14 +365,15 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 			LocalConfs[TID].clear();
 		}
 
-		const std::vector<Configuration> NextConfs = BGRT.NextGen(Iterations);
+
+		uint64_t LocalIterations = Iterations / NumThreads;
 		
 		/* Use a lambda to apply filtering to the next configurations to apply.
 		 * In this case, prune any job which has the size less than the range
 		 * (ie, the delta between min and max interval < some range)
 		 */
 		uint64_t TotalJobs = 0;
-		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, NextConfs, [&TotalJobs, MinRange](const Configuration &Config){
+		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, Iterations, BGRT, [&TotalJobs, MinRange](const Configuration &Config){
 			bool Okay = true;
 			for (const auto &Pair : Config)
 			{
@@ -417,7 +417,7 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 			while (Continue[TID] != EMPTY) 
 			{ 
 				std::unique_lock<std::mutex> Lck(WorkerMutex[TID + NumThreads]);
-				WorkerCV[TID + NumThreads].wait(Lck);				
+				WorkerCV[TID + NumThreads].wait_for(Lck, std::chrono::milliseconds(500));				
 			}
 			if (LocalErrors[TID].Err > LocalError.Err)
 			{
@@ -455,6 +455,37 @@ EvalResults FindErrorBoundConf(const std::unordered_map<uint64_t, bgrt::Variable
 
 	return WorstError;
 }
+
+/**
+ * @brief Implements a multi-threaded variant of the BGRT algorithm to efficiently find floating point errors
+c* @author Brian Schnepp
+ * @see https://formalverification.cs.utah.edu/grt/publications/ppopp14-s3fp.pdf
+ * @param InitConf The initial BGRT variable configuration
+ * @param Iterations The number of configurations to create upon every previous configuration given
+ * @param Resources The number of bits which need to be ignored in the mantissa of range: numbers differing by less than this range are ignored.
+ * @param RestartPercent The percentage, as a whole integer, where the initial configuration is reset to avoid local minima
+ * @param F The function which takes a BGRT configuration to check for floating-point error with.
+ * @param k The number of times to execute F, looking for potential error
+ * @param LogFreq Operand to (Resoruces % LogFreq), for when error will be logged to LogOut. Default is 5000.
+ * @param LogOut A stream to send messages to for logging. Default is std::cout.
+ * @param NumThreads The number of threads to be using for finding error. 0 (default) gets all possible threads.
+ * @return The highest error of the function that was ever found, described as "WorstError" in the paper
+ */
+template<typename T>
+EvalResults FindErrorMantissaMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
+		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
+		const uint64_t Iterations = 100, const int64_t Resources = 0, const uint64_t RestartPercent = 15,
+		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+{
+	T Lim = (dom::hpfloat)std::numeric_limits<T>::epsilon();
+
+	dom::hpfloat hLim = (dom::hpfloat)Lim;
+
+	/* Provide one extra Resource to account for rounding */
+	dom::hpfloat mLim = hLim * dom::hp::pow(2.0, (Resources-1));
+	return FindErrorBoundConfMultithread(InitConf, F, Iterations, mLim, RestartPercent, k, LogFreq, LogOut, NumThreads);
+}
+
 
 }
 

@@ -1,7 +1,7 @@
 #include <iostream>
 #include <domain.hpp>
 
-#define ARR_SIZE (5)
+#define ARR_SIZE (9)
 
 using FType = float;
 using Val = dom::Value<FType>;
@@ -11,33 +11,15 @@ using Conf = std::unordered_map<uint64_t, Var>;
 
 uint64_t ToLinearAddr(int i, int j)
 {
-	/* The actual array is [0, 1, 2, 3, 4]
-	 * To avoid making unnecessary variables, only 5 will be made.
-	 * The first 3 are conditional on i = 0, 1, 2, and j = 0.
-	 * The remainder are the (0, 1) and (0, -1) cases, at 3 and 4. 
-	 */
-	if (j == 0)
-	{
-		return i;
-	}
-
-	if (j == 1)
-	{
-		return 3;
-	}
-	if (j == 5)
-	{
-		return 4;
-	}
-	return 0;
+	return i + (3 * j);
 }
 
 Array Function(Array &Arr)
 {
 	Array RetVal;
 	
-	Val Coeffs[5];
-	for (uint64_t Index = 0; Index < 5; Index++)
+	Val Coeffs[9];
+	for (uint64_t Index = 0; Index < 9; Index++)
 	{
 		Coeffs[Index] = (dom::hpfloat)1.0;
 	}
@@ -47,11 +29,15 @@ Array Function(Array &Arr)
 	int i = 1;
 	
 	int offset = ToLinearAddr(i, j);
-	RetVal[offset] = (Coeffs[0] * Arr[ToLinearAddr(i+0,j+0)]) 
-		+ (Coeffs[1] * Arr[ToLinearAddr(i+0,j+1)])
-		+ (Coeffs[2] * Arr[ToLinearAddr(i+0,j-1)])
-		+ (Coeffs[3] * Arr[ToLinearAddr(i+1,j+0)])
-		+ (Coeffs[4] * Arr[ToLinearAddr(i-1,j+0)]);
+	RetVal[offset] = ((Coeffs[0] * Arr[ToLinearAddr(i+0,j+0)]) 
+		+ (Coeffs[1] * Arr[ToLinearAddr(i+0,j+1)]))
+		+ ((Coeffs[2] * Arr[ToLinearAddr(i+0,j-1)])
+		+ (Coeffs[3] * Arr[ToLinearAddr(i+1,j+1)]))
+		+ ((Coeffs[4] * Arr[ToLinearAddr(i+1,j-1)])
+		+ (Coeffs[5] * Arr[ToLinearAddr(i-1,j+1)]))
+		+ ((Coeffs[6] * Arr[ToLinearAddr(i-1,j-1)])
+		+ (Coeffs[7] * Arr[ToLinearAddr(i+1,j+0)]))
+		+ (Coeffs[8] * Arr[ToLinearAddr(i-1,j+0)]);
 	return RetVal;
 }
 

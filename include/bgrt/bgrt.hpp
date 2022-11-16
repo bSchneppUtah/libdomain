@@ -95,7 +95,7 @@ public:
 		static std::uniform_int_distribution<int> SDist(INT32_MIN, INT32_MAX);
 
 
-#define OKAY_RANDOM
+#define FAIR_RANDOM
 #ifdef ACCURATE_RANDOM
 		dom::hpfloat RandScale = this->Maximum.SVal() - this->Minimum.SVal();
 		dom::hpfloat RandNumber = mpfr::random(SDist(Gen));
@@ -313,9 +313,6 @@ public:
 	std::vector<Configuration> NextGen(uint64_t NPart) const
 	{
 		std::vector<Configuration> NextG;
-
-		/* Pre-allocate space for efficiency */
-		NextG.reserve((NPart * 2) + 2);
 		
 		/* Append both halves of the current entry in */
 		ConfigurationOptions Configs = HalfConfigs(this->Vals);
@@ -331,12 +328,16 @@ public:
 
 		/* Optimization: Similarly, putting together both halves also improves cache locality. */
 		std::vector<ConfigurationOptions> Options1(NPart);
-		std::vector<ConfigurationOptions> Options2(NPart);
-
 		for (int i = 0; i < NPart; i++)
 		{
 			const ConfigurationOptions &Arr = Options[i];
 			Options1[i] = HalfConfigs(Arr[0]);
+		}
+
+		std::vector<ConfigurationOptions> Options2(NPart);
+		for (int i = 0; i < NPart; i++)
+		{
+			const ConfigurationOptions &Arr = Options[i];
 			Options2[i] = HalfConfigs(Arr[1]);
 		}
 

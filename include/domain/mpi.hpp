@@ -23,11 +23,97 @@
 
 #include "domain/util.hpp"
 
+#include <domain/base.hpp>
+#include <domain/multithread.hpp>
+
+#include <mpi.h>
+
 #ifndef DOMAIN_MPI_HPP_
 #define DOMAIN_MPI_HPP_
 
 namespace dom
 {
+
+/**
+ * @brief Implements a multi-threaded variant of the BGRT algorithm to efficiently find floating point errors
+ * @author Brian Schnepp
+ * @see https://formalverification.cs.utah.edu/grt/publications/ppopp14-s3fp.pdf
+ * @param InitConf The initial BGRT variable configuration
+ * @param Iterations The number of configurations to create upon every previous configuration given
+ * @param Resources The number of bits which need to be ignored in the mantissa of range: numbers differing by less than this range are ignored.
+ * @param RestartPercent The percentage, as a whole integer, where the initial configuration is reset to avoid local minima
+ * @param F The function which takes a BGRT configuration to check for floating-point error with.
+ * @param k The number of times to execute F, looking for potential error
+ * @param LogFreq Operand to (Resoruces % LogFreq), for when error will be logged to LogOut. Default is 5000.
+ * @param LogOut A stream to send messages to for logging. Default is std::cout.
+ * @return The highest error of the function that was ever found, described as "WorstError" in the paper
+ */
+template<typename T>
+EvalResults FindErrorMantissaMPI(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
+		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
+		const uint64_t Iterations = 100, const int64_t Resources = 0, const uint64_t RestartPercent = 15,
+		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+{
+	T Lim = (dom::hpfloat)std::numeric_limits<T>::epsilon();
+	dom::hpfloat hLim = (dom::hpfloat)Lim;
+	/* Provide one extra Resource to account for rounding */
+	dom::hpfloat mLim = hLim * dom::hp::pow(2.0, (Resources-1));
+
+	int NumP;
+	MPI_Comm_size(MPI_COMM_WORLD, &NumP);
+	
+	int PID;
+	MPI_Comm_rank(MPI_COMM_WORLD, &PID);
+
+	int64_t MyResources = Resources / NumP;
+	if (PID + 1 == NumP) {
+		MyResources += Resources % NumP;
+	}
+
+	uint64_t MyK = k / NumP;
+	if (PID + 1 == NumP) {
+		MyK += k % NumP;
+	}
+
+	EvalResults MyRes = FindErrorBoundConf(InitConf, F, MyResources, mLim, RestartPercent, MyK, LogFreq, LogOut);
+
+	/* HACK: downcast to double and send that. */
+	struct MPIResult
+	{
+		double Abs;
+		double Rel;
+		uint64_t Shadow;
+	};
+
+	MPIResult Mine;
+	Mine.Abs = (double)MyRes.Err;
+	Mine.Rel = (double)MyRes.RelErr;
+	Mine.Shadow = MyRes.TotalShadowOps;
+
+
+	if (PID == 0)
+	{
+		for (int Index = 1; Index < NumP; Index++)
+		{
+			MPIResult Theirs;
+			MPI_Recv(&Theirs.Abs, 1, MPI_DOUBLE, Index, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			MPI_Recv(&Theirs.Rel, 1, MPI_DOUBLE, Index, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			MPI_Recv(&Theirs.Shadow, 1, MPI_UNSIGNED_LONG_LONG, Index, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+			if (Mine.Abs < Theirs.Abs)
+			{
+				Mine = Theirs;
+			}
+		}
+	}
+	else
+	{
+		MPI_Send(&Mine.Abs, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+		MPI_Send(&Mine.Rel, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+		MPI_Send(&Mine.Shadow, 1, MPI_UNSIGNED_LONG_LONG, 0, 0, MPI_COMM_WORLD);
+	}
+	return {Mine.Abs, Mine.Rel, Mine.Shadow};
+}
 
 /**
  * @brief Implements an MPI variant of the BGRT algorithm to efficiently find floating point errors
@@ -48,7 +134,8 @@ template<typename T>
 EvalResults FindErrorBoundConfMPI(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
 		const uint64_t Iterations = 1000, const dom::hpfloat MinRange = std::numeric_limits<T>::epsilon(), 
-		const uint64_t RestartPercent = 15, uint64_t k = 25, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		const uint64_t RestartPercent = 15, uint64_t k = 25, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout,
+		uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));
@@ -73,7 +160,6 @@ EvalResults FindErrorBoundConfMPI(const std::unordered_map<uint64_t, bgrt::Varia
 	static std::uniform_int_distribution<int> Dist(0, 100);
 
 	std::thread Threads[NumThreads];
-
 	std::vector<std::vector<Configuration>> PartNextConfs(NumThreads);
 
 	EvalResults LocalErrors[NumThreads];

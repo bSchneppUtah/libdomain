@@ -30,37 +30,46 @@ EvalResults Eval(std::unordered_map<uint64_t, dom::Value<T>> (*P)(std::unordered
 	dom::hpfloat Err = (dom::hpfloat)0.0;
 	dom::hpfloat RelErr = (dom::hpfloat)0.0;
 
+	/* To avoid out-of-control hashmap allocations, run groupings of some smaller k
+	 * if it's particularly large.
+	 */
+	if (k > 500)
+	{
+		/* Split the work in half to avoid crazy memory allocations */
+		EvalResults Left = Eval(P, C, k/2);
+		EvalResults Right = Eval(P, C, (k/2) + (k%2));
+		if (Left.Err > Right.Err)
+		{
+			return Left;
+		}
+		return Right;
+	}
+
 	using Val = dom::Value<T>;
 	using Var = bgrt::Variable<T>;
 	using Array = std::unordered_map<uint64_t, Val>;
 	using Configuration = std::unordered_map<uint64_t, Var>;
 
 	Array SubmitVals;
-	/* Reserve the same amount of space: performance optimization */
-	SubmitVals.reserve(C.bucket_count());
 
 	std::vector<Array> SampleConfs(k);
 
 	/* Call F on this configuration K times (Section 3.1) */
-	for (auto &Pair : C)
+	for (const auto &Pair : C)
 	{
 		/* Sample a point within the given domain */
-		for (uint64_t iK = 0; iK < k; iK++)
+		uint64_t tileK = 0;
+		for (; tileK < SampleConfs.capacity(); tileK++)
 		{
-			SampleConfs[iK][Pair.first] = Pair.second.Sample();
+			SampleConfs[tileK][Pair.first] = Pair.second.Sample();
 		}
 	}
 
-	std::vector<Array> Results(k);
 	/* Call F on this configuration K times (Section 3.1)*/
 	for (uint64_t iK = 0; iK < k; iK++)
 	{
-		/* Submit a job to P with the sampled points */
-		Results.push_back(P(SampleConfs[iK]));
-	}
+		const Array &Next = P(SampleConfs[iK]);
 
-	for (const Array &Next : Results)
-	{
 		for (auto &Pair : Next)
 		{
 			hpfloat Error = Pair.second.Error();

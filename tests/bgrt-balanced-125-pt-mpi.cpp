@@ -1,5 +1,8 @@
 #include <iostream>
 #include <domain.hpp>
+#include <domain/mpi.hpp>
+
+#include <mpi.h>
 
 #define ARR_SIZE (125)
 
@@ -182,8 +185,9 @@ Array Function(Array &Arr)
 	return RetVal;
 }
 
-int main()
-{
+int main(int argc, char **argv)
+{	
+	MPI_Init(&argc, &argv);
 	dom::Init();
 	std::cout.precision(128);
 
@@ -193,6 +197,8 @@ int main()
 		Init[i] = bgrt::Variable<float>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
 	}
 
-	dom::EvalResults Res = dom::FindErrorMantissaMultithread<float>(Init, Function);
+	dom::EvalResults Res = dom::FindErrorMantissaMPI<float>(Init, Function, 1000, 0);
 	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
+	MPI_Finalize();
+	return 0;
 }

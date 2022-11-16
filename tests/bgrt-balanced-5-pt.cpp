@@ -63,9 +63,9 @@ int main()
 	Conf Init;
 	for (int i = 0; i < ARR_SIZE; i++)
 	{
-		Init[i] = Var((dom::hpfloat)0.0, (dom::hpfloat)1.0);
+		Init[i] = bgrt::Variable<float>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
 	}
 
-	dom::EvalResults Res = dom::FindErrorMantissa<float>(Init, Function, 1000, 0);
+	dom::EvalResults Res = dom::FindErrorMantissaMultithread<float>(Init, Function);
 	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
 }
