@@ -79,6 +79,53 @@ target_link_libraries(bgrt-balanced-125-pt domain)
 add_executable(bgrt-balanced-poisson tests/bgrt-balanced-poisson.cpp)
 target_link_libraries(bgrt-balanced-poisson domain)
 
+
+
+
+
+add_executable(double-bgrt-ltr-5-pt tests/double/bgrt-ltr-5-pt.cpp)
+target_link_libraries(double-bgrt-ltr-5-pt domain)
+
+add_executable(double-bgrt-ltr-7-pt tests/double/bgrt-ltr-7-pt.cpp)
+target_link_libraries(double-bgrt-ltr-7-pt domain)
+
+add_executable(double-bgrt-ltr-9-pt tests/double/bgrt-ltr-9-pt.cpp)
+target_link_libraries(double-bgrt-ltr-9-pt domain)
+
+add_executable(double-bgrt-ltr-25-pt tests/double/bgrt-ltr-25-pt.cpp)
+target_link_libraries(double-bgrt-ltr-25-pt domain)
+
+add_executable(double-bgrt-ltr-27-pt tests/double/bgrt-ltr-27-pt.cpp)
+target_link_libraries(double-bgrt-ltr-27-pt domain)
+
+add_executable(double-bgrt-ltr-125-pt tests/double/bgrt-ltr-125-pt.cpp)
+target_link_libraries(double-bgrt-ltr-125-pt domain)
+
+add_executable(double-bgrt-ltr-poisson tests/double/bgrt-ltr-poisson.cpp)
+target_link_libraries(double-bgrt-ltr-poisson domain)
+
+add_executable(double-bgrt-balanced-5-pt tests/double/bgrt-balanced-5-pt.cpp)
+target_link_libraries(double-bgrt-balanced-5-pt domain)
+
+add_executable(double-bgrt-balanced-7-pt tests/double/bgrt-balanced-7-pt.cpp)
+target_link_libraries(double-bgrt-balanced-7-pt domain)
+
+add_executable(double-bgrt-balanced-9-pt tests/double/bgrt-balanced-9-pt.cpp)
+target_link_libraries(double-bgrt-balanced-9-pt domain)
+
+add_executable(double-bgrt-balanced-25-pt tests/double/bgrt-balanced-25-pt.cpp)
+target_link_libraries(double-bgrt-balanced-25-pt domain)
+
+add_executable(double-bgrt-balanced-27-pt tests/double/bgrt-balanced-27-pt.cpp)
+target_link_libraries(double-bgrt-balanced-27-pt domain)
+
+add_executable(double-bgrt-balanced-125-pt tests/double/bgrt-balanced-125-pt.cpp)
+target_link_libraries(double-bgrt-balanced-125-pt domain)
+
+add_executable(double-bgrt-balanced-poisson tests/double/bgrt-balanced-poisson.cpp)
+target_link_libraries(double-bgrt-balanced-poisson domain)
+
+
 if (MPI_FOUND)
 add_executable(bgrt-balanced-125-pt-mpi tests/bgrt-balanced-125-pt-mpi.cpp)
 target_link_libraries(bgrt-balanced-125-pt-mpi domain ${MPI_LIBRARIES})

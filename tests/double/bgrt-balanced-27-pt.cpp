@@ -3,7 +3,7 @@
 
 #define ARR_SIZE (27)
 
-using FType = float;
+using FType = double;
 using Val = dom::Value<FType>;
 using Var = bgrt::Variable<FType>;
 using Array = std::unordered_map<uint64_t, Val>;
@@ -68,9 +68,9 @@ int main()
 	Conf Init;
 	for (int i = 0; i < ARR_SIZE; i++)
 	{
-		Init[i] = bgrt::Variable<float>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
+		Init[i] = bgrt::Variable<FType>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
 	}
 
-	dom::EvalResults Res = dom::FindErrorMantissaMultithread<float>(Init, Function);
+	dom::EvalResults Res = dom::FindErrorMantissaMultithread<FType>(Init, Function);
 	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
 }

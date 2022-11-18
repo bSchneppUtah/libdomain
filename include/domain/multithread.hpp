@@ -47,7 +47,7 @@ namespace dom
 template<typename T>
 EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 100, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 15,
+		const uint64_t Iterations = 100, const int64_t Resources = INT32_MAX, const uint64_t RestartPercent = 5,
 		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
@@ -279,7 +279,7 @@ template<typename T>
 EvalResults FindErrorBoundConfMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
 		const uint64_t Iterations = 100, const dom::hpfloat MinRange = std::numeric_limits<T>::epsilon(), 
-		const uint64_t RestartPercent = 15, uint64_t k = 1000, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
+		const uint64_t RestartPercent = 5, uint64_t k = 1000, uint64_t LogFreq = 4000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	/* Don't allow using something of the same size as the high precision float. */
 	static_assert(sizeof(T) != sizeof(dom::hpfloat));
@@ -474,7 +474,7 @@ c* @author Brian Schnepp
 template<typename T>
 EvalResults FindErrorMantissaMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 100, const int64_t Resources = 0, const uint64_t RestartPercent = 15,
+		const uint64_t Iterations = 100, const int64_t Resources = 0, const uint64_t RestartPercent = 5,
 		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	T Lim = (dom::hpfloat)std::numeric_limits<T>::epsilon();
