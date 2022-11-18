@@ -77,13 +77,25 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 
 	std::thread Threads[NumThreads];
 
+	/**
+	 * @brief Implements a partition counter, which allows for a "lazy" synchronization of a global counter variable.
+	 */
 	struct PartitionCounter
 	{
+		/* The "actualized" value of this counter at any given time */
 		std::atomic_int64_t RealValue;
+
+		/* Some list of local counters for each thread */
 		int64_t *ThreadCounters;
+
+		/* And the number of threads there are. */
 		uint64_t NumThreads;
 
 	public:
+		/**
+		 * @brief Initialized the partition counter with a given number of threads
+		 * @param NumThreads The number of threads to support
+		 */
 		PartitionCounter(uint64_t NumThreads)
 		{
 			this->RealValue = 0;
@@ -101,6 +113,9 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			delete[] this->ThreadCounters;
 		}
 
+		/**
+		 * @brief Forces all threads to keep their read of the value in-sync with the global view (as in a flush)
+		 */
 		void Sync()
 		{
 			for (uint64_t Index = 0; Index < NumThreads; Index++)
@@ -110,17 +125,31 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			}
 		}
 
+		/**
+		 * @brief Reads the immediate value of the global counter, after issuing a sync.
+		 */
 		int64_t Read()
 		{
 			this->Sync();
 			return this->RealValue;
 		}
 
+		/**
+		 * @brief Adds to the thread-local counter, which will eventually be synced with the global counter.
+		 * @param Value The value to add
+		 * @param TID The current Thread ID
+		 */
 		void Add(int64_t Value, uint64_t TID)
 		{
 			this->ThreadCounters[TID] += Value;
 		}
 
+
+		/**
+		 * @brief Subtracts from the thread-local counter, which will eventually be synced with the global counter.
+		 * @param Value The value to subtract
+		 * @param TID The current Thread ID
+		 */
 		void Sub(int64_t Value, uint64_t TID)
 		{
 			this->ThreadCounters[TID] -= Value;
@@ -166,12 +195,18 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 		{
 			while (Continue[TID] != TERMINATE)
 			{
+				/* Hold an exclusive lock on the worker thread for taking in data */
 				std::unique_lock<std::mutex> Lck(WorkerMutex[TID]);
+
+				/* Either try to proceed every 500 milliseconds, or whenever work is issued, whichever comes first. */
 				WorkerCV[TID].wait_for(Lck, std::chrono::milliseconds(500));
 
 				if (Continue[TID] == WORK_AVAIL) 
 				{
 					Continue[TID] = WORKING;
+					/* Every thread has some partition of work: 
+					 * go through all of them, and then perform the work. 
+					 */
 					for (const auto &C : PartNextConfs[TID])
 					{
 						EvalResults Res = Eval(F, C, k);
@@ -184,6 +219,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 						RemainingResources.Add(Ops, TID);
 					}
 
+					/* When done, say we are and then notify the coordinator thread. */
 					Continue[TID] = EMPTY;
 					WorkerCV[TID + NumThreads].notify_all();
 				}
@@ -191,11 +227,15 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 		}, TID);
 	}
 
+	/*
+	 * The main part of BGRT: while we still have resources available... 
+	 */
 	while (RemainingResources.Read() <= Resources)
 	{
 		LocalError = EvalResults{};
 		PartNextConfs.clear();
 
+		/* Make sure all the workers are done first */
 		for (uint64_t TID = 0; TID < NumThreads; TID++)
 		{
 			while (Continue[TID] != EMPTY) { }
@@ -203,10 +243,12 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			LocalConfs[TID].clear();
 		}
 
-		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, NumThreads, BGRT, [](const Configuration &Config){
+		/* Create a partition of all the configurations possible from the current BGRT state, for the number of threads we have. */
+		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, Iterations, BGRT, [](const Configuration &Config){
 			return true;
 		});
 
+		/* Send a notification to all the workers that PartNextConfs has new data for them */
 		for (uint64_t TID = 0; TID < NumThreads; TID++)
 		{
 			while (Continue[TID] != EMPTY) { }
@@ -215,6 +257,10 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 		}
 
 
+		/* For all of the threads:
+			- wait until work is complete on all of them
+			- Update the error if we encountered a higher one
+		 */
 		for (uint64_t TID = 0; TID < NumThreads; TID++)
 		{
 			while (Continue[TID] != EMPTY) 
@@ -237,6 +283,7 @@ EvalResults FindErrorMultithread(const std::unordered_map<uint64_t, bgrt::Variab
 			WorstError = LocalError;
 		}
 
+		/* Also sometimes send something to std::out or wherever the LogOut is, this is just to confirm liveness and also show how much progress we're making. */
 		if ((RemainingResources.Read() % LogFreq) == 0)
 		{
 			LogOut << "(CurError " << "(abs " << WorstError.Err << ")" << ", (rel " << WorstError.RelErr << "))" << std::endl;
