@@ -510,6 +510,7 @@ c* @author Brian Schnepp
  * @param InitConf The initial BGRT variable configuration
  * @param Iterations The number of configurations to create upon every previous configuration given
  * @param Resources The number of bits which need to be ignored in the mantissa of range: numbers differing by less than this range are ignored.
+ * @param Scale The scaling to apply to the epsilon calculation
  * @param RestartPercent The percentage, as a whole integer, where the initial configuration is reset to avoid local minima
  * @param F The function which takes a BGRT configuration to check for floating-point error with.
  * @param k The number of times to execute F, looking for potential error
@@ -521,7 +522,7 @@ c* @author Brian Schnepp
 template<typename T>
 EvalResults FindErrorMantissaMultithread(const std::unordered_map<uint64_t, bgrt::Variable<T>> &InitConf,
 		std::unordered_map<uint64_t, dom::Value<T>> (*F)(std::unordered_map<uint64_t, dom::Value<T>>&),
-		const uint64_t Iterations = 100, const int64_t Resources = 0, const uint64_t RestartPercent = 5,
+		const uint64_t Iterations = 100, const int64_t Resources = 0, T Scale = 1.0, const uint64_t RestartPercent = 5,
 		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
 	T Lim = (dom::hpfloat)std::numeric_limits<T>::epsilon();
@@ -529,7 +530,7 @@ EvalResults FindErrorMantissaMultithread(const std::unordered_map<uint64_t, bgrt
 	dom::hpfloat hLim = (dom::hpfloat)Lim;
 
 	/* Provide one extra Resource to account for rounding */
-	dom::hpfloat mLim = hLim * dom::hp::pow(2.0, (Resources-1));
+	dom::hpfloat mLim = hLim * Scale * dom::hp::pow(2.0, (Resources-1));
 	return FindErrorBoundConfMultithread(InitConf, F, Iterations, mLim, RestartPercent, k, LogFreq, LogOut, NumThreads);
 }
 
