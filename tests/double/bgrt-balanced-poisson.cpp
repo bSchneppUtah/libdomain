@@ -62,5 +62,7 @@ int main()
 	}
 
 	dom::EvalResults Res = dom::FindErrorMantissaMultithread<double>(Init, Function);
-	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
+	std::cout << "\tAbsolute Error\tRelative Error" << std::endl;
+	std::cout << "Balanced Poisson" << "\t" << Res.Err << "\t" << Res.RelErr << std::endl;
+	return 0;
 }

@@ -198,7 +198,8 @@ int main(int argc, char **argv)
 	}
 
 	dom::EvalResults Res = dom::FindErrorMantissaMPI<double>(Init, Function, 1000, 0);
-	std::cout << "Absolute error: " << Res.Err << ", " << "Relative error: " << Res.RelErr << std::endl;
+	std::cout << "\tAbsolute Error\tRelative Error" << std::endl;
+	std::cout << "Balanced (MPI) 125pt" << "\t" << Res.Err << "\t" << Res.RelErr << std::endl;
 	MPI_Finalize();
 	return 0;
 }
