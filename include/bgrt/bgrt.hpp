@@ -95,7 +95,10 @@ public:
 		static std::uniform_int_distribution<int> SDist(INT32_MIN, INT32_MAX);
 
 
+#if !defined(ACCURATE_RANDOM) && !defined(FAIR_RANDOM) && !defined(OKAY_RANDOM) && !defined(TIME_RANDOM)
 #define FAIR_RANDOM
+#endif
+
 #ifdef ACCURATE_RANDOM
 		dom::hpfloat RandScale = this->Maximum.SVal() - this->Minimum.SVal();
 		dom::hpfloat RandNumber = mpfr::random(SDist(Gen));
