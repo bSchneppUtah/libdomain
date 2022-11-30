@@ -1,7 +1,6 @@
 #!/bin/sh
 
-rm -rf ~/bgrt_results
-mkdir ~/bgrt_results
+mkdir -p ~/bgrt_results
 
 ../build/bgrt-ltr-5-pt | tail -n 2 >> ~/bgrt_results/FP32
 ../build/bgrt-ltr-7-pt | tail -n 1 >> ~/bgrt_results/FP32

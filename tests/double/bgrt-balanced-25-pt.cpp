@@ -68,8 +68,12 @@ int main()
 		Init[i] = bgrt::Variable<FType>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
 	}
 
+	auto Start = std::chrono::high_resolution_clock::now();
 	dom::EvalResults Res = dom::FindErrorMantissaMultithread<FType>(Init, Function);
+	auto End = std::chrono::high_resolution_clock::now();
+	auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start);
+
 	std::cout << "\tAbsolute Error\tRelative Error" << std::endl;
-	std::cout << "Balanced 25pt" << "\t" << Res.Err << "\t" << Res.RelErr << std::endl;
+	std::cout << "Balanced 25pt" << "\t" << Res.Err << "\t" << Res.RelErr <<  "\t" << Duration.count() << std::endl;
 	return 0;
 }

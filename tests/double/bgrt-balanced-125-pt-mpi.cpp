@@ -6,6 +6,7 @@
 
 #define ARR_SIZE (125)
 
+using FType = double;
 using Val = dom::Value<double>;
 using Var = bgrt::Variable<double>;
 using Array = std::unordered_map<uint64_t, Val>;

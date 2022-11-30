@@ -3,6 +3,7 @@
 
 #define ARR_SIZE (125)
 
+using FType = double;
 using Val = dom::Value<double>;
 using Var = bgrt::Variable<double>;
 using Array = std::unordered_map<uint64_t, Val>;
@@ -193,8 +194,12 @@ int main()
 		Init[i] = bgrt::Variable<double>((dom::hpfloat)-1.0, (dom::hpfloat)1.0);
 	}
 
-	dom::EvalResults Res = dom::FindErrorMantissaMultithread<double>(Init, Function);
+	auto Start = std::chrono::high_resolution_clock::now();
+	dom::EvalResults Res = dom::FindErrorMantissaMultithread<FType>(Init, Function);
+	auto End = std::chrono::high_resolution_clock::now();
+	auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start);
+
 	std::cout << "\tAbsolute Error\tRelative Error" << std::endl;
-	std::cout << "LTR 125pt" << "\t" << Res.Err << "\t" << Res.RelErr << std::endl;
+	std::cout << "LTR 125pt" << "\t" << Res.Err << "\t" << Res.RelErr <<  "\t" << Duration.count() << std::endl;
 	return 0;
 }
