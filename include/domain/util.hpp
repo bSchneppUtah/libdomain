@@ -11,6 +11,7 @@ typedef struct EvalResults
 	dom::hpfloat Err;
 	dom::hpfloat RelErr;
 	uint64_t TotalShadowOps;
+	uint64_t UlpsDifference;
 }EvalResults;
 
 /**

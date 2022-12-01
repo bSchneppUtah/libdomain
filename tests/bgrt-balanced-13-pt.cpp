@@ -18,13 +18,14 @@ uint64_t ToLinearAddr(int i, int j, int k)
 
 	/* Use a property of C integers to determine if this is the i-axis being worked on.
 	 * If ti is NOT zero, then it's on that axis. Otherwise, it's the [0, 0, 0] point is none of them are not non-zero.
-	 * Since the original coordinate was transformed from [0, 2] to [-1, 1], just use [0, 2] as the variable index.
+	 * Since the original coordinate was transformed from [0, 2] to [-2, 2], just use [0, 5] as the variable index.
 	 */
 	if (ti || (!tj && !tk))
 	{
 		return i;
 	}
 
+	/* The only point where all 0s is present was already covered: find which axis has a non-zero value. */
 	if (tj)
 	{
 		if (tj == 1)
