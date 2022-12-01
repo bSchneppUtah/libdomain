@@ -505,7 +505,7 @@ EvalResults FindErrorBoundConfMultithread(const std::unordered_map<uint64_t, bgr
 
 /**
  * @brief Implements a multi-threaded variant of the BGRT algorithm to efficiently find floating point errors
-c* @author Brian Schnepp
+ * @author Brian Schnepp
  * @see https://formalverification.cs.utah.edu/grt/publications/ppopp14-s3fp.pdf
  * @param InitConf The initial BGRT variable configuration
  * @param Iterations The number of configurations to create upon every previous configuration given
@@ -525,13 +525,192 @@ EvalResults FindErrorMantissaMultithread(const std::unordered_map<uint64_t, bgrt
 		const uint64_t Iterations = 100, const int64_t Resources = 0, T Scale = 1.0, const uint64_t RestartPercent = 5,
 		uint64_t k = 1000, uint64_t LogFreq = 5000, std::ostream &LogOut = std::cout, uint64_t NumThreads = 0)
 {
-	T Lim = (dom::hpfloat)std::numeric_limits<T>::epsilon();
+	dom::hpfloat Lim = (dom::hpfloat)std::numeric_limits<T>::epsilon();
 
-	dom::hpfloat hLim = (dom::hpfloat)Lim;
+	/* Don't allow using something of the same size as the high precision float. */
+	static_assert(sizeof(T) != sizeof(dom::hpfloat));
 
-	/* Provide one extra Resource to account for rounding */
-	dom::hpfloat mLim = hLim * Scale * dom::hp::pow(2.0, (Resources-1));
-	return FindErrorBoundConfMultithread(InitConf, F, Iterations, mLim, RestartPercent, k, LogFreq, LogOut, NumThreads);
+	if (NumThreads == 0)
+	{
+		NumThreads = std::thread::hardware_concurrency();
+	}
+
+	bool RandomRestart = false;
+	EvalResults WorstError = EvalResults{};
+	EvalResults LocalError = EvalResults{};
+	
+	using Var = bgrt::Variable<T>;
+	using Configuration = std::unordered_map<uint64_t, Var>;
+	
+	Configuration LocalConf = InitConf;
+	bgrt::BGRTState BGRT(LocalConf);
+
+	static std::random_device Dev;
+	static std::mt19937 Gen(Dev());
+	static std::uniform_int_distribution<int> Dist(0, 100);
+
+	std::thread Threads[NumThreads];
+
+	std::vector<std::vector<Configuration>> PartNextConfs(NumThreads);
+
+	EvalResults LocalErrors[NumThreads];
+	Configuration LocalConfs[NumThreads];
+	std::atomic_uint8_t Continue[NumThreads];
+
+	enum ThreadControl
+	{
+		EMPTY = 0,
+		WORKING = 1,
+		WORK_AVAIL = 2,
+		TERMINATE = 3,
+	};
+	
+	/* The first NumThreads is for work input, the second half for work output. */
+	std::mutex WorkerMutex[NumThreads * 2];
+	std::condition_variable WorkerCV[NumThreads * 2];
+
+	for (uint64_t TID = 0; TID < NumThreads; TID++)
+	{
+		Continue[TID] = EMPTY;
+		Threads[TID] = std::thread([&LocalErrors, &LocalConfs, &PartNextConfs, &F, &k, &Continue, &WorkerCV, &WorkerMutex, NumThreads](uint64_t TID)
+		{
+			while (Continue[TID] != TERMINATE)
+			{
+				std::unique_lock<std::mutex> Lck(WorkerMutex[TID]);
+				WorkerCV[TID].wait_for(Lck, std::chrono::milliseconds(500));
+				if (Continue[TID] == WORK_AVAIL) 
+				{
+					Continue[TID] = WORKING;
+					for (const auto &C : PartNextConfs[TID])
+					{
+						EvalResults Res = Eval(F, C, k);
+						dom::hpfloat Err = Res.Err;
+						if (Err > LocalErrors[TID].Err)
+						{
+							LocalErrors[TID] = Res;
+							LocalConfs[TID] = C;
+						}
+					}
+					Continue[TID] = EMPTY;
+					WorkerCV[TID + NumThreads].notify_all();
+				}
+			}
+		}, TID);
+	}
+
+	bool ResourcesAvailable = true;
+	while (ResourcesAvailable)
+	{
+		LocalError = EvalResults{};
+		PartNextConfs.clear();
+
+		for (uint64_t TID = 0; TID < NumThreads; TID++)
+		{
+			while (Continue[TID] != EMPTY) { }
+			LocalErrors[TID] = EvalResults{};
+			LocalConfs[TID].clear();
+		}
+
+
+		uint64_t LocalIterations = Iterations / NumThreads;
+		
+		/* Use a lambda to apply filtering to the next configurations to apply.
+		 * In this case, prune any job which has the size less than the range
+		 * (ie, the delta between min and max interval < some range)
+		 */
+		uint64_t TotalJobs = 0;
+		PartNextConfs = dom::impl::PartitionConfigs<T>(NumThreads, Iterations, BGRT, [&TotalJobs, Lim, Resources, Scale](const Configuration &Config){
+			bool Okay = true;
+			for (const auto &Pair : Config)
+			{
+				dom::hpfloat RangeSize = Pair.second.Size().SVal();
+				
+				dom::hpfloat Min = Pair.second.Min().SVal();
+				dom::hpfloat Max = Pair.second.Max().SVal();
+				dom::hpfloat Bigger = (Min < Max) ? Min : Max;
+
+				dom::hpfloat Eps = 0.5 * Lim * (Resources + 1);
+				dom::hpfloat Filter = Scale * (Bigger * Eps);
+				Filter = (Filter < 0) ? -Filter : Filter;
+
+				if (RangeSize < Filter)
+				{
+					Okay = false;
+				}
+
+				TotalJobs += (1 * Okay);
+			}
+			return Okay;
+		});		
+
+		/* We're done if every possible job was too close to the boundary. */
+		std::cout << "Total Jobs: " << TotalJobs << std::endl;
+		if (TotalJobs == 0)
+		{
+			ResourcesAvailable = false;
+			break;
+		}
+
+		/* Issue work to the worker threads */
+		for (uint64_t TID = 0; TID < NumThreads; TID++)
+		{
+			while (Continue[TID] != EMPTY) { }
+			Continue[TID] = WORK_AVAIL;
+			WorkerCV[TID].notify_all();
+		}
+
+
+		/* Collect results on all the worker threads sequentially.
+		 * In theory, this can be redone with condition variables
+		 * to allow any thread to complete in any order, but since
+		 * this isn't a distributed systems problem (and we're assuming SMP)
+		 * every core should eventually offer a reply, and roughly at the
+		 * same time anyway. If this was not true, then the machine running
+		 * this code must have crashed (or ran out of resources), such that
+		 * there's no real way to continue anyway.
+		 */
+		for (uint64_t TID = 0; TID < NumThreads; TID++)
+		{
+			while (Continue[TID] != EMPTY) 
+			{ 
+				std::unique_lock<std::mutex> Lck(WorkerMutex[TID + NumThreads]);
+				WorkerCV[TID + NumThreads].wait_for(Lck, std::chrono::milliseconds(500));				
+			}
+			if (LocalErrors[TID].Err > LocalError.Err)
+			{
+				LocalError = LocalErrors[TID];
+				LocalConf = LocalConfs[TID];
+				BGRT.SetVals(LocalConf);
+			}
+		}
+
+		/* Is the error in this configuration higher than the global maximum? */
+		if (LocalError.Err > WorstError.Err)
+		{
+			WorstError = LocalError;
+		}
+
+		if ((Dist(Gen) * Dist(Gen)) <= LogFreq)
+		{
+			LogOut << "(CurError " << "(abs " << WorstError.Err << ")" << ", (rel " << WorstError.RelErr << "))" << std::endl;
+		}
+
+		/* Sometimes re-issue the original configuration, to avoid getting stuck. */
+		RandomRestart = (Dist(Gen) % 100) < RestartPercent;
+		if (RandomRestart)
+		{
+			LocalConf = InitConf;
+			BGRT.SetVals(LocalConf);
+		}
+	}
+	for (uint64_t TID = 0; TID < NumThreads; TID++)
+	{
+		Continue[TID] = TERMINATE;
+		WorkerCV[TID].notify_all();
+		Threads[TID].join();
+	}
+
+	return WorstError;
 }
 
 
