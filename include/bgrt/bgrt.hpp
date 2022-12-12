@@ -92,7 +92,7 @@ public:
 	{
 		static std::random_device Dev;
 		static std::mt19937 Gen(Dev());
-		static std::uniform_int_distribution<int> SDist(INT32_MIN, INT32_MAX);
+		static std::uniform_int_distribution<int64_t> SDist(INT64_MIN, INT64_MAX);
 
 
 #if !defined(ACCURATE_RANDOM) && !defined(FAIR_RANDOM) && !defined(OKAY_RANDOM) && !defined(TIME_RANDOM)

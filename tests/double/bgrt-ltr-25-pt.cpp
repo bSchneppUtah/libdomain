@@ -29,31 +29,31 @@ Array Function(Array &Arr)
 	int i = 2;
 	
 	int offset = ToLinearAddr(i, j);
-	RetVal[offset] = (Coeffs[0] * Arr[ToLinearAddr(i - 2, j - 2)])
-			+ (Coeffs[1] * Arr[ToLinearAddr(i - 1, j - 2)])
-			+ (Coeffs[2] * Arr[ToLinearAddr(i + 0, j - 2)])
-			+ (Coeffs[3] * Arr[ToLinearAddr(i + 1, j - 2)])
-			+ (Coeffs[4] * Arr[ToLinearAddr(i + 2, j - 2)])
-			+ (Coeffs[5] * Arr[ToLinearAddr(i - 2, j - 1)])
-			+ (Coeffs[6] * Arr[ToLinearAddr(i - 1, j - 1)])
-			+ (Coeffs[7] * Arr[ToLinearAddr(i + 0, j - 1)])
-			+ (Coeffs[8] * Arr[ToLinearAddr(i + 1, j - 1)])
-			+ (Coeffs[9] * Arr[ToLinearAddr(i + 2, j - 1)])
-			+ (Coeffs[10] * Arr[ToLinearAddr(i - 2, j + 0)])
-			+ (Coeffs[11] * Arr[ToLinearAddr(i - 1, j + 0)])
-			+ (Coeffs[12] * Arr[ToLinearAddr(i + 0, j + 0)])
-			+ (Coeffs[13] * Arr[ToLinearAddr(i + 1, j + 0)])
-			+ (Coeffs[14] * Arr[ToLinearAddr(i + 2, j + 0)])
-			+ (Coeffs[15] * Arr[ToLinearAddr(i - 2, j + 1)])
-			+ (Coeffs[16] * Arr[ToLinearAddr(i - 1, j + 1)])
-			+ (Coeffs[17] * Arr[ToLinearAddr(i + 0, j + 1)])
-			+ (Coeffs[18] * Arr[ToLinearAddr(i + 1, j + 1)])
-			+ (Coeffs[19] * Arr[ToLinearAddr(i + 2, j + 1)])
-			+ (Coeffs[20] * Arr[ToLinearAddr(i - 2, j + 2)])
-			+ (Coeffs[21] * Arr[ToLinearAddr(i - 1, j + 2)])
-			+ (Coeffs[22] * Arr[ToLinearAddr(i + 0, j + 2)])
-			+ (Coeffs[23] * Arr[ToLinearAddr(i + 1, j + 2)])
-			+ (Coeffs[24] * Arr[ToLinearAddr(i + 2, j + 2)]);
+	RetVal[offset] = (((((((((((((((((((((((((Coeffs[0] * Arr[ToLinearAddr(i - 2, j - 2)])
+			+ (Coeffs[1] * Arr[ToLinearAddr(i - 1, j - 2)]))
+			+ (Coeffs[2] * Arr[ToLinearAddr(i + 0, j - 2)]))
+			+ (Coeffs[3] * Arr[ToLinearAddr(i + 1, j - 2)]))
+			+ (Coeffs[4] * Arr[ToLinearAddr(i + 2, j - 2)]))
+			+ (Coeffs[5] * Arr[ToLinearAddr(i - 2, j - 1)]))
+			+ (Coeffs[6] * Arr[ToLinearAddr(i - 1, j - 1)]))
+			+ (Coeffs[7] * Arr[ToLinearAddr(i + 0, j - 1)]))
+			+ (Coeffs[8] * Arr[ToLinearAddr(i + 1, j - 1)]))
+			+ (Coeffs[9] * Arr[ToLinearAddr(i + 2, j - 1)]))
+			+ (Coeffs[10] * Arr[ToLinearAddr(i - 2, j + 0)]))
+			+ (Coeffs[11] * Arr[ToLinearAddr(i - 1, j + 0)]))
+			+ (Coeffs[12] * Arr[ToLinearAddr(i + 0, j + 0)]))
+			+ (Coeffs[13] * Arr[ToLinearAddr(i + 1, j + 0)]))
+			+ (Coeffs[14] * Arr[ToLinearAddr(i + 2, j + 0)]))
+			+ (Coeffs[15] * Arr[ToLinearAddr(i - 2, j + 1)]))
+			+ (Coeffs[16] * Arr[ToLinearAddr(i - 1, j + 1)]))
+			+ (Coeffs[17] * Arr[ToLinearAddr(i + 0, j + 1)]))
+			+ (Coeffs[18] * Arr[ToLinearAddr(i + 1, j + 1)]))
+			+ (Coeffs[19] * Arr[ToLinearAddr(i + 2, j + 1)]))
+			+ (Coeffs[20] * Arr[ToLinearAddr(i - 2, j + 2)]))
+			+ (Coeffs[21] * Arr[ToLinearAddr(i - 1, j + 2)]))
+			+ (Coeffs[22] * Arr[ToLinearAddr(i + 0, j + 2)]))
+			+ (Coeffs[23] * Arr[ToLinearAddr(i + 1, j + 2)]))
+			+ (Coeffs[24] * Arr[ToLinearAddr(i + 2, j + 2)]));
 	return RetVal;
 }
 
@@ -73,7 +73,13 @@ int main()
 	auto End = std::chrono::high_resolution_clock::now();
 	auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start);
 
-	std::cout << "\tAbsolute Error\tRelative Error" << std::endl;
-	std::cout << "LTR 25pt" << "\t" << Res.Err << "\t" << Res.RelErr <<  "\t" << Duration.count() << std::endl;
+	std::string TestName = "LTR 25pt";
+	const dom::hpfloat logCorrect = log2(abs(Res.CorrectValue), dom::HP_ROUNDING);
+	const dom::hpfloat Binade = ceil(logCorrect);
+	const dom::hpfloat Eps = std::numeric_limits<FType>::epsilon();
+	const dom::hpfloat ULPError = Res.Err / (Binade * Eps);
+
+	std::cout << "\tAbsolute Error\tRelative Error\tTime taken (ms)\tCorrect Number\tULP Error" << std::endl;
+	std::cout << TestName << "\t" << Res.Err << "\t" << Res.RelErr << "\t" << Duration.count() << "\t" << Res.CorrectValue << "\t" << ULPError << std::endl;
 	return 0;
 }

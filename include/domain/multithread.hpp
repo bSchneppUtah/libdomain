@@ -644,7 +644,6 @@ EvalResults FindErrorMantissaMultithread(const std::unordered_map<uint64_t, bgrt
 		});		
 
 		/* We're done if every possible job was too close to the boundary. */
-		std::cout << "Total Jobs: " << TotalJobs << std::endl;
 		if (TotalJobs == 0)
 		{
 			ResourcesAvailable = false;

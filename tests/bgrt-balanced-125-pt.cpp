@@ -3,6 +3,7 @@
 
 #define ARR_SIZE (125)
 
+using FType = float;
 using Val = dom::Value<float>;
 using Var = bgrt::Variable<float>;
 using Array = std::unordered_map<uint64_t, Val>;
@@ -197,6 +198,12 @@ int main()
 	dom::EvalResults Res = dom::FindErrorMantissaMultithread<float>(Init, Function);
 	auto End = std::chrono::high_resolution_clock::now();
 	auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start);
-	std::cout << "\tAbsolute Error\tRelative Error" << std::endl;
-	std::cout << "Balanced 125pt" << "\t" << Res.Err << "\t" << Res.RelErr << "\t" << Duration.count() << std::endl;
+	std::string TestName = "Balanced 125pt";
+	const dom::hpfloat logCorrect = log2(abs(Res.CorrectValue), dom::HP_ROUNDING);
+	const dom::hpfloat Binade = ceil(logCorrect);
+	const dom::hpfloat Eps = std::numeric_limits<FType>::epsilon();
+	const dom::hpfloat ULPError = Res.Err / (Binade * Eps);
+
+	std::cout << "\tAbsolute Error\tRelative Error\tTime taken (ms)\tCorrect Number\tULP Error" << std::endl;
+	std::cout << TestName << "\t" << Res.Err << "\t" << Res.RelErr << "\t" << Duration.count() << "\t" << Res.CorrectValue << "\t" << ULPError << std::endl;
 }

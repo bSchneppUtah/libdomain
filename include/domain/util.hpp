@@ -10,8 +10,9 @@ typedef struct EvalResults
 {
 	dom::hpfloat Err;
 	dom::hpfloat RelErr;
+	dom::hpfloat ComputedValue;
+	dom::hpfloat CorrectValue;
 	uint64_t TotalShadowOps;
-	uint64_t UlpsDifference;
 }EvalResults;
 
 /**
@@ -66,6 +67,8 @@ EvalResults Eval(std::unordered_map<uint64_t, dom::Value<T>> (*P)(std::unordered
 		}
 	}
 
+	dom::Value<T> Result;
+
 	/* Call F on this configuration K times (Section 3.1)*/
 	for (uint64_t iK = 0; iK < k; iK++)
 	{
@@ -80,13 +83,14 @@ EvalResults Eval(std::unordered_map<uint64_t, dom::Value<T>> (*P)(std::unordered
 			{
 				Err = Error;
 				RelErr = RelError;
+				Result = Pair.second;
 			}
 
 			TotalShadowOps += Pair.second.Ops();
-		}		
+		}
 	}
 
-	return {Err, RelErr, TotalShadowOps};	
+	return {Err, RelErr, Result.Val(), Result.SVal(), TotalShadowOps};	
 }
 
 }
