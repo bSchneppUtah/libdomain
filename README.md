@@ -40,6 +40,12 @@ int main()
 
 For more details, the examples under `tests/` contain example usage of the code.
 
+![Overview](doc/highlevel.png)
+
+## Algorithm
+
+![Overview](doc/algorithm.png)
+
 ## Building
 At minimum, CMake version 3.10 is required to build this project. It is possible that earlier versions will also be compatible, but this has not yet been tested.
 
