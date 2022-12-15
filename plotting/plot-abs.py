@@ -48,6 +48,8 @@ data = {}
 for i in range(len(names)):
 	data[names[i]] = [values[i]]
 
-sns.barplot(data=pd.DataFrame(data), palette="Pastel1").set(title="Abs Error (64-bit)")
+sns.set(font_scale=1.4)
+sns.barplot(data=pd.DataFrame(data), palette="bright").set(title="Abs Error (64-bit)")
+plt.xticks(rotation=45)
 plt.show()
 
